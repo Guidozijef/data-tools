@@ -304,55 +304,6 @@
               <span>配置 [{{ field.name }}] 的数据清洗与格式化规则</span>
             </div>
 
-            <!-- 样本数据实时清洗流水线对照卡片 (充分利用全宽展示丰富内容) -->
-            <div v-if="hasSamplePreview(field.name)" class="sample-pipeline-card">
-              <div class="pipeline-card-header">
-                <div class="pipeline-title">
-                  <Eye :size="15" class="text-primary" />
-                  <span>【{{ field.name }}】实时清洗前后样本对照 (前 5 行测试)</span>
-                </div>
-                <span class="pipeline-tip">勾选或修改下方规则，清洗后结果即刻在此实时响应更新</span>
-              </div>
-
-              <div class="pipeline-table-wrapper">
-                <table class="pipeline-table">
-                  <thead>
-                    <tr>
-                      <th style="width: 60px;" class="th-center"># 行号</th>
-                      <th>Excel 原始数据 (Raw)</th>
-                      <th style="width: 36px;" class="th-center"></th>
-                      <th>清洗后目标数据 (Cleaned Output)</th>
-                      <th style="width: 150px;">字段校验状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="item in getFieldSampleList(field.name, 5)"
-                      :key="item.rowIndex"
-                      :class="{ 'row-has-error': item.error }"
-                    >
-                      <td class="td-center mono-text td-muted">行 {{ item.rowIndex }}</td>
-                      <td class="mono-text raw-cell" :title="String(item.rawVal)">
-                        <span v-if="item.rawVal !== '' && item.rawVal !== undefined">{{ truncate(item.rawVal, 70) }}</span>
-                        <span v-else class="text-muted">(空/NULL)</span>
-                      </td>
-                      <td class="td-center text-muted">➔</td>
-                      <td class="mono-text cleaned-cell" :title="String(item.cleanedVal)">
-                        <span v-if="item.cleanedVal !== '' && item.cleanedVal !== undefined" class="text-emerald font-semibold">
-                          {{ truncate(item.cleanedVal, 70) }}
-                        </span>
-                        <span v-else class="text-muted">(空/NULL)</span>
-                      </td>
-                      <td>
-                        <span v-if="!item.error" class="badge badge-success">✓ 校验正常</span>
-                        <span v-else class="badge badge-danger" :title="item.error">⚠ {{ truncate(item.error, 18) }}</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
             <!-- JSON 路径可视化提取配置面板 -->
             <div v-if="getRule(field.name).sourceType === 'json_path'" class="panel-special-card">
               <div class="special-card-header">
@@ -610,6 +561,58 @@
                 <option :value="3">3 位小数</option>
                 <option :value="4">4 位小数</option>
               </select>
+            </div>
+
+            <!-- 实时清洗前后样本对照流水线卡片 (置于属性配置下方，且在自定义 JS 时隐藏避免重复沙箱列表) -->
+            <div
+              v-if="hasSamplePreview(field.name) && getRule(field.name).sourceType !== 'custom_js'"
+              class="sample-pipeline-card"
+            >
+              <div class="pipeline-card-header">
+                <div class="pipeline-title">
+                  <Eye :size="15" class="text-primary" />
+                  <span>【{{ field.name }}】实时清洗前后样本对照 (前 5 行测试)</span>
+                </div>
+                <span class="pipeline-tip">根据上方配置的提取方式与清洗规则，前 5 行真实数据的清洗结果在此实时响应更新</span>
+              </div>
+
+              <div class="pipeline-table-wrapper">
+                <table class="pipeline-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 60px;" class="th-center"># 行号</th>
+                      <th>Excel 原始数据 (Raw)</th>
+                      <th style="width: 36px;" class="th-center"></th>
+                      <th>清洗后目标数据 (Cleaned Output)</th>
+                      <th style="width: 150px;">字段校验状态</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="item in getFieldSampleList(field.name, 5)"
+                      :key="item.rowIndex"
+                      :class="{ 'row-has-error': item.error }"
+                    >
+                      <td class="td-center mono-text td-muted">行 {{ item.rowIndex }}</td>
+                      <td class="mono-text raw-cell" :title="String(item.rawVal)">
+                        <span v-if="item.rawVal !== '' && item.rawVal !== undefined">{{ truncate(item.rawVal, 70) }}</span>
+                        <span v-else class="text-muted">(空/NULL)</span>
+                      </td>
+                      <td class="td-center text-muted">➔</td>
+                      <td class="mono-text cleaned-cell" :title="String(item.cleanedVal)">
+                        <span v-if="item.cleanedVal !== '' && item.cleanedVal !== undefined" class="text-emerald font-semibold">
+                          {{ truncate(item.cleanedVal, 70) }}
+                        </span>
+                        <span v-else class="text-muted">(空/NULL)</span>
+                      </td>
+                      <td>
+                        <span v-if="!item.error" class="badge badge-success">✓ 校验正常</span>
+                        <span v-else class="badge badge-danger" :title="item.error">⚠ {{ truncate(item.error, 18) }}</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1273,7 +1276,7 @@ function removeDictEntry(fieldName, pIdx) {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-bottom: 8px;
+  margin-top: 10px;
 }
 
 .pipeline-card-header {
