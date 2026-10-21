@@ -237,7 +237,7 @@
 
                 <!-- 6. 忽略提示 -->
                 <div v-else class="ignore-hint">
-                  使用字段默认值或 NULL (不导入)
+                  使用字段默认值或留空 (不导入)
                 </div>
               </div>
 
@@ -596,14 +596,14 @@
                       <td class="td-center mono-text td-muted">行 {{ item.rowIndex }}</td>
                       <td class="mono-text raw-cell" :title="String(item.rawVal)">
                         <span v-if="item.rawVal !== '' && item.rawVal !== undefined">{{ truncate(item.rawVal, 70) }}</span>
-                        <span v-else class="text-muted">(空/NULL)</span>
+                        <span v-else class="text-muted">(空)</span>
                       </td>
                       <td class="td-center text-muted">➔</td>
                       <td class="mono-text cleaned-cell" :title="String(item.cleanedVal)">
                         <span v-if="item.cleanedVal !== '' && item.cleanedVal !== undefined" class="text-emerald font-semibold">
                           {{ truncate(item.cleanedVal, 70) }}
                         </span>
-                        <span v-else class="text-muted">(空/NULL)</span>
+                        <span v-else class="text-muted">(空)</span>
                       </td>
                       <td>
                         <span v-if="!item.error" class="badge badge-success">✓ 校验正常</span>
@@ -824,13 +824,17 @@ function handleAutoMatch() {
 }
 
 function clearAllMappings() {
-  const cleared = props.targetFields.map(t => ({
-    targetField: t.name,
-    sourceField: '',
-    sourceType: 'ignore',
-    cleanRules: [{ type: 'trim', enabled: true }],
-    defaultValue: t.defaultValue || ''
-  }))
+  const cleared = props.targetFields.map(t => {
+    const rawDef = t.defaultValue || ''
+    const cleanDef = (rawDef && String(rawDef).trim().toLowerCase() !== 'null') ? rawDef : ''
+    return {
+      targetField: t.name,
+      sourceField: '',
+      sourceType: 'ignore',
+      cleanRules: [{ type: 'trim', enabled: true }],
+      defaultValue: cleanDef
+    }
+  })
   emit('update:mappingRules', cleared)
   emit('notify', { message: '已清空所有字段关联', type: 'info' })
 }

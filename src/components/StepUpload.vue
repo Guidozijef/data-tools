@@ -156,6 +156,17 @@
             </label>
           </div>
 
+          <div class="option-item">
+            <label class="checkbox-label" title="自动识别从 Navicat、DBeaver 等导出的 'null'、'NULL'、'\\N' 文本并将其规整为空值">
+              <input
+                type="checkbox"
+                :checked="convertNullToEmpty"
+                @change="$emit('update:convertNullToEmpty', $event.target.checked)"
+              />
+              <span>将 NULL 文本转为空值</span>
+            </label>
+          </div>
+
           <div class="step-next-action">
             <button class="btn btn-primary btn-lg" @click="$emit('go-next')">
               <span>下一步：配置目标数据库表结构</span>
@@ -196,7 +207,7 @@
                   <span v-if="row[h] !== '' && row[h] !== undefined && row[h] !== null" class="cell-text">
                     {{ row[h] }}
                   </span>
-                  <span v-else class="cell-empty">NULL</span>
+                  <span v-else class="cell-empty" title="此单元格为空">(空)</span>
                 </td>
               </tr>
             </tbody>
@@ -248,6 +259,10 @@ const props = defineProps({
     default: 0
   },
   skipEmptyRows: {
+    type: Boolean,
+    default: true
+  },
+  convertNullToEmpty: {
     type: Boolean,
     default: true
   }

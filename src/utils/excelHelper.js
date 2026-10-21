@@ -42,9 +42,36 @@ export async function readExcelFile(file) {
  * @param {number} [options.headerRowIndex=0] 0-based 表头所在行号
  * @param {boolean} [options.skipEmptyRows=true] 是否跳过全空行
  * @returns {{ headers: string[], rows: Record<string, any>[], rawMatrix: any[][] }}
+/**
+ * 判断值是否属于空值或等价于数据库的 NULL 标识符
+ * 支持 null、undefined、空字符串以及常见的数据库导出文本 "NULL"、"null"、"\\N"、"(null)"
+ * @param {any} val 待检测的值
+ * @param {boolean} [treatNullTextAsEmpty=true] 是否将字面量 "null" 视为空
+ * @returns {boolean} 是否视为空值
+ */
+export function isNullOrEmptyValue(val, treatNullTextAsEmpty = true) {
+  if (val === '' || val === undefined || val === null) {
+    return true
+  }
+  if (treatNullTextAsEmpty && typeof val === 'string') {
+    const trimmed = val.trim()
+    return /^(null|\(null\)|nil|none|\\N)$/i.test(trimmed)
+  }
+  return false
+}
+
+/**
+ * 根据指定 Sheet 及配置解析为表格数据与表头
+ * @param {any} workbook
+ * @param {string} sheetName
+ * @param {object} options
+ * @param {number} [options.headerRowIndex=0] 0-based 表头所在行号
+ * @param {boolean} [options.skipEmptyRows=true] 是否跳过全空行
+ * @param {boolean} [options.convertNullToEmpty=true] 是否自动将数据库 NULL 文本转换为空
+ * @returns {{ headers: string[], rows: Record<string, any>[], rawMatrix: any[][] }}
  */
 export function parseSheetData(workbook, sheetName, options = {}) {
-  const { headerRowIndex = 0, skipEmptyRows = true } = options
+  const { headerRowIndex = 0, skipEmptyRows = true, convertNullToEmpty = true } = options
   const worksheet = workbook.Sheets[sheetName]
   if (!worksheet) {
     return { headers: [], rows: [], rawMatrix: [] }
@@ -86,12 +113,18 @@ export function parseSheetData(workbook, sheetName, options = {}) {
   const rows = []
   for (let r = headerRowIndex + 1; r < matrix.length; r++) {
     const rowCells = matrix[r] || []
-    const isAllEmpty = rowCells.every(v => v === '' || v === undefined || v === null)
+    const isAllEmpty = rowCells.every(v => isNullOrEmptyValue(v, convertNullToEmpty))
     if (skipEmptyRows && isAllEmpty) continue
 
     const rowObj = { _rawRowIndex: r + 1 }
     headers.forEach((h, colIdx) => {
-      rowObj[h] = rowCells[colIdx] !== undefined ? rowCells[colIdx] : ''
+      const cellVal = rowCells[colIdx]
+      // 若开启 convertNullToEmpty 且单元格属于数据库 NULL 文本，直接置为空字符串 ''
+      if (convertNullToEmpty && isNullOrEmptyValue(cellVal, true)) {
+        rowObj[h] = ''
+      } else {
+        rowObj[h] = cellVal !== undefined ? cellVal : ''
+      }
     })
     rows.push(rowObj)
   }
@@ -128,7 +161,8 @@ export function exportToExcel(data, fileName = 'cleaned_data.xlsx', sheetName = 
       if (typeof val === 'object' && val !== null) {
         val = JSON.stringify(val)
       }
-      row[label] = val === null || val === undefined ? '' : val
+      // 规整空值与 NULL 标识，确保导出的 Excel 为干净的空单元格，不出现 "null" 字符串
+      row[label] = isNullOrEmptyValue(val, true) ? '' : val
     })
     return row
   })
@@ -173,7 +207,7 @@ export function exportToCsv(data, fileName = 'cleaned_data.csv', columnKeys = nu
       if (typeof val === 'object' && val !== null) {
         val = JSON.stringify(val)
       }
-      return escapeCsvValue(val === null || val === undefined ? '' : String(val))
+      return escapeCsvValue(isNullOrEmptyValue(val, true) ? '' : String(val))
     })
     csvRows.push(rowValues.join(','))
   })
@@ -196,7 +230,7 @@ export function exportToJson(data, fileName = 'cleaned_data.json', columnKeys = 
   const cleanData = data.map(item => {
     const res = {}
     keys.forEach(k => {
-      res[k] = item[k]
+      res[k] = isNullOrEmptyValue(item[k], true) ? '' : item[k]
     })
     return res
   })
@@ -207,7 +241,7 @@ export function exportToJson(data, fileName = 'cleaned_data.json', columnKeys = 
 }
 
 function escapeCsvValue(val) {
-  if (val === null || val === undefined) return '""'
+  if (isNullOrEmptyValue(val, true)) return '""'
   const str = String(val)
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`

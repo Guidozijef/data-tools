@@ -30,11 +30,13 @@
         :rows="rawRows"
         :header-row-index="headerRowIndex"
         :skip-empty-rows="skipEmptyRows"
+        :convert-null-to-empty="convertNullToEmpty"
         @file-selected="handleFileSelected"
         @load-demo="handleLoadDemo"
         @change-sheet="handleChangeSheet"
         @update:header-row-index="onHeaderRowChange"
         @update:skip-empty-rows="skipEmptyRows = $event; parseActiveSheet()"
+        @update:convert-null-to-empty="convertNullToEmpty = $event; cleanOptions.convertNullToEmpty = $event; parseActiveSheet()"
         @go-next="onStep1Next"
       />
 
@@ -170,6 +172,7 @@ const headers = ref([])
 const rawRows = ref([])
 const headerRowIndex = ref(0)
 const skipEmptyRows = ref(true)
+const convertNullToEmpty = ref(true)
 
 // 2. 目标库结构
 const targetSchema = ref({
@@ -184,6 +187,7 @@ const cleanOptions = ref({
   dedupField: 'user_code',
   dedupStrategy: 'keep_first',
   skipEmptyRows: true,
+  convertNullToEmpty: true,
   requiredFields: ['user_code']
 })
 
@@ -250,7 +254,8 @@ function parseActiveSheet() {
   if (!activeWorkbook.value || !currentSheet.value) return
   const parsed = parseSheetData(activeWorkbook.value, currentSheet.value, {
     headerRowIndex: headerRowIndex.value,
-    skipEmptyRows: skipEmptyRows.value
+    skipEmptyRows: skipEmptyRows.value,
+    convertNullToEmpty: convertNullToEmpty.value
   })
 
   headers.value = parsed.headers

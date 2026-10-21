@@ -121,7 +121,7 @@
               :class="{ 'text-danger': test.error, 'text-success': !test.error }"
               :title="String(test.output)"
             >
-              {{ test.error ? `[错误] ${test.error}` : (test.output !== undefined && test.output !== null && test.output !== '' ? truncate(test.output, 90) : 'NULL') }}
+              {{ test.error ? `[错误] ${test.error}` : (test.output !== undefined && test.output !== null && test.output !== '' ? truncate(test.output, 90) : '(空)') }}
             </span>
           </div>
         </div>

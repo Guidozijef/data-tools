@@ -148,6 +148,7 @@
                   <input
                     :value="row[field.name]"
                     class="cell-inline-input"
+                    placeholder="空"
                     :class="{ 'input-has-error': row._errors && row._errors[field.name] }"
                     @change="onCellEdit(row, field.name, $event.target.value)"
                   />
@@ -233,7 +234,7 @@
                   class="kv-item"
                 >
                   <span class="kv-key">{{ col }}:</span>
-                  <span class="kv-val mono-text">{{ val !== '' && val !== undefined ? val : 'NULL' }}</span>
+                  <span class="kv-val mono-text">{{ val !== '' && val !== undefined && val !== null ? val : '(空)' }}</span>
                 </div>
               </div>
             </div>
@@ -252,7 +253,7 @@
                   :class="{ 'item-error': comparingRow._errors && comparingRow._errors[field.name] }"
                 >
                   <span class="kv-key">{{ field.name }} ({{ field.label }}):</span>
-                  <span class="kv-val mono-text">{{ comparingRow[field.name] !== '' && comparingRow[field.name] !== undefined ? comparingRow[field.name] : 'NULL' }}</span>
+                  <span class="kv-val mono-text">{{ comparingRow[field.name] !== '' && comparingRow[field.name] !== undefined && comparingRow[field.name] !== null ? comparingRow[field.name] : '(空)' }}</span>
                   <div v-if="comparingRow._errors && comparingRow._errors[field.name]" class="item-error-msg">
                     {{ comparingRow._errors[field.name] }}
                   </div>

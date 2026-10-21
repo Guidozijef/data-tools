@@ -33,7 +33,10 @@ export function generateSqlScript(cleanedRows, targetSchema, options = {}) {
     const ddlLines = fields.map(f => {
       let line = `  ${wrapIdent(f.name)} ${getDialectType(f.type, f.length, dialect)}`
       if (!f.nullable) line += ' NOT NULL'
-      if (f.defaultValue) line += ` DEFAULT '${escapeSqlString(f.defaultValue)}'`
+      // 仅当默认值存在且不是 NULL 关键字时才拼接 DEFAULT 语句
+      if (f.defaultValue && String(f.defaultValue).trim().toLowerCase() !== 'null') {
+        line += ` DEFAULT '${escapeSqlString(f.defaultValue)}'`
+      }
       if (f.comment && dialect === 'mysql') line += ` COMMENT '${escapeSqlString(f.comment)}'`
       return line
     })
@@ -106,7 +109,9 @@ export function generateSqlScript(cleanedRows, targetSchema, options = {}) {
 }
 
 function formatSqlValue(val, type = 'varchar') {
-  if (val === null || val === undefined || val === '') {
+  // 空值或数据库 NULL 标识统一定义为 SQL 关键字 NULL (不带引号)
+  if (val === null || val === undefined || val === '' ||
+      (typeof val === 'string' && /^(null|\(null\)|nil|none|\\N)$/i.test(val.trim()))) {
     return 'NULL'
   }
 

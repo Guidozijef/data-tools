@@ -68,10 +68,15 @@ export function parseSqlDdl(sqlText) {
       }
 
       // 提取默认值 DEFAULT 'xxx' or DEFAULT 0
+      // 注意：在 SQL DDL 规范中，DEFAULT NULL 表示字段可为 NULL 且无业务默认值，
+      // 前端字段定义与清洗映射中应置为空字符串 ''，避免清洗时空单元格被自动填充为字面量 "NULL"。
       let defaultValue = ''
       const defaultMatch = rest.match(/default\s+([^,\s]+)/i)
       if (defaultMatch) {
-        defaultValue = defaultMatch[1].replace(/['"]/g, '')
+        const rawDefault = defaultMatch[1].trim().replace(/['"]/g, '')
+        if (rawDefault.toLowerCase() !== 'null') {
+          defaultValue = rawDefault
+        }
       }
 
       const standardType = normalizeSqlType(rawType)

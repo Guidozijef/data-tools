@@ -11,12 +11,26 @@
  * @param {object} options 全局行级选项（去重、空行过滤等）
  * @returns {{ cleanedRows: Array<object>, stats: object, errorSummary: Array<object> }}
  */
+/**
+ * 判断字符串或数据是否等价于数据库 NULL 标识
+ * @param {any} val 待检测的值
+ * @returns {boolean} 是否为数据库 NULL 标识
+ */
+export function isNullLiteral(val) {
+  if (val === null || val === undefined || val === '') return true
+  if (typeof val === 'string') {
+    return /^(null|\(null\)|nil|none|\\N)$/i.test(val.trim())
+  }
+  return false
+}
+
 export function runCleaningPipeline(sourceRows, targetFields, mappingRules, options = {}) {
   const {
     dedupField = null,
     dedupStrategy = 'keep_first', // keep_first | keep_last
     skipEmptyRows = true,
-    requiredFields = []
+    requiredFields = [],
+    convertNullToEmpty = true // 是否自动将 "null" / "NULL" 等数据库空值标识转为空字符串
   } = options
 
   const stats = {
@@ -67,13 +81,16 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
       let transformedVal = null
 
       if (!rule || rule.sourceType === 'ignore') {
-        transformedVal = field.defaultValue !== undefined ? field.defaultValue : ''
+        const def = field.defaultValue !== undefined ? field.defaultValue : ''
+        transformedVal = (def && !isNullLiteral(def)) ? def : ''
       } else if (rule.sourceType === 'constant') {
-        transformedVal = rule.constantValue !== undefined ? rule.constantValue : field.defaultValue
+        const cVal = rule.constantValue !== undefined ? rule.constantValue : field.defaultValue
+        transformedVal = (convertNullToEmpty && isNullLiteral(cVal)) ? '' : cVal
       } else if (rule.sourceType === 'combine') {
         // 多字段拼接
         const parts = (rule.combineFields || []).map(srcCol => {
           const val = rawRow[srcCol]
+          if (convertNullToEmpty && isNullLiteral(val)) return ''
           return val !== undefined && val !== null ? String(val).trim() : ''
         }).filter(Boolean)
         transformedVal = parts.join(rule.combineSeparator || ' ')
@@ -84,7 +101,7 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
 
         if (!parsedJson) {
           transformedVal = ''
-          if (sourceJsonStr && String(sourceJsonStr).trim()) {
+          if (sourceJsonStr && String(sourceJsonStr).trim() && !isNullLiteral(sourceJsonStr)) {
             cleanedRow._errors[fieldName] = `源字段 [${rule.sourceField}] 的内容不是合法的 JSON 格式`
             cleanedRow._hasError = true
           }
@@ -130,12 +147,23 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
         transformedVal = applyFieldCleanRules(transformedVal, rule.cleanRules || [], rawRow)
       } else {
         // 标准单字段映射
-        const sourceVal = rawRow[rule.sourceField]
+        let sourceVal = rawRow[rule.sourceField]
+        if (convertNullToEmpty && isNullLiteral(sourceVal)) {
+          sourceVal = ''
+        }
         transformedVal = applyFieldCleanRules(sourceVal, rule.cleanRules || [], rawRow)
       }
 
-      // 默认值回退
-      if ((transformedVal === null || transformedVal === undefined || transformedVal === '') && rule?.defaultValue !== undefined && rule?.defaultValue !== '') {
+      // 如果转换后的值依然是字面量 NULL，规范化为空字符串
+      if (convertNullToEmpty && isNullLiteral(transformedVal)) {
+        transformedVal = ''
+      }
+
+      // 默认值回退：仅当默认值存在且不是字面量 "null" 时回退
+      if ((transformedVal === null || transformedVal === undefined || transformedVal === '') &&
+          rule?.defaultValue !== undefined &&
+          rule?.defaultValue !== '' &&
+          !isNullLiteral(rule.defaultValue)) {
         transformedVal = rule.defaultValue
       }
 
@@ -378,7 +406,8 @@ export function executeCustomJs(code, context = {}) {
  * 针对单个字段值执行清洗规则链
  */
 export function applyFieldCleanRules(val, cleanRules = [], fullRow = {}) {
-  let result = val
+  // 前置规整：如果输入值本身是数据库导出的 NULL 标识符，归一化为空字符串 ''
+  let result = isNullLiteral(val) ? '' : val
 
   for (const rule of cleanRules) {
     if (rule.enabled === false) continue
@@ -417,7 +446,7 @@ export function applyFieldCleanRules(val, cleanRules = [], fullRow = {}) {
 
       case 'clean_phone':
         // 手机号清洗：剥离+86、空格、破折号、括号
-        if (result !== null && result !== undefined) {
+        if (result !== null && result !== undefined && result !== '') {
           let str = String(result).replace(/[\s\-_()+]/g, '')
           if (str.startsWith('86') && str.length === 13) {
             str = str.substring(2)
@@ -482,6 +511,10 @@ export function applyFieldCleanRules(val, cleanRules = [], fullRow = {}) {
         // 字典/枚举映射
         if (rule.mapping && typeof rule.mapping === 'object') {
           const key = result !== null && result !== undefined ? String(result).trim() : ''
+          // 如果为空值且字典中未显式配置空值映射，保持为空，避免错误回退到非空默认枚举
+          if (key === '' && rule.mapping[''] === undefined) {
+            break
+          }
           if (rule.mapping[key] !== undefined) {
             result = rule.mapping[key]
           } else {
@@ -543,7 +576,7 @@ export function applyFieldCleanRules(val, cleanRules = [], fullRow = {}) {
  * 支持 Excel 序列数、常见中文日期、斜杠日期、点号日期、ISO 日期
  */
 export function normalizeDateTime(val, targetFormat = 'YYYY-MM-DD HH:mm:ss') {
-  if (val === null || val === undefined || val === '') {
+  if (val === null || val === undefined || val === '' || isNullLiteral(val)) {
     return ''
   }
 
@@ -622,7 +655,7 @@ function formatDate(d, fmt) {
  * 校验字段数据类型与必填约束
  */
 export function validateFieldType(val, field) {
-  const isNullOrEmpty = val === null || val === undefined || val === ''
+  const isNullOrEmpty = val === null || val === undefined || val === '' || isNullLiteral(val)
 
   if (!field.nullable && isNullOrEmpty) {
     return '此字段不可为空 (NOT NULL)'
@@ -717,6 +750,8 @@ export function autoMatchFields(sourceHeaders, targetFields) {
     }
 
     const cleanRules = getDefaultCleanRulesForType(target.type)
+    const targetDef = target.defaultValue || ''
+    const cleanDef = isNullLiteral(targetDef) ? '' : targetDef
 
     if (matchedSource) {
       mappings.push({
@@ -724,7 +759,7 @@ export function autoMatchFields(sourceHeaders, targetFields) {
         sourceField: matchedSource,
         sourceType: 'field',
         cleanRules,
-        defaultValue: target.defaultValue || '',
+        defaultValue: cleanDef,
         matched: true
       })
     } else {
@@ -733,7 +768,7 @@ export function autoMatchFields(sourceHeaders, targetFields) {
         sourceField: '',
         sourceType: 'ignore',
         cleanRules,
-        defaultValue: target.defaultValue || '',
+        defaultValue: cleanDef,
         matched: false
       })
     }
@@ -809,13 +844,15 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
 
     if (rule.sourceType === 'ignore') {
       rawVal = ''
-      intermediateVal = (field && field.defaultValue !== undefined) ? field.defaultValue : ''
+      const def = (field && field.defaultValue !== undefined) ? field.defaultValue : ''
+      intermediateVal = (def && !isNullLiteral(def)) ? def : ''
     } else if (rule.sourceType === 'constant') {
       rawVal = rule.constantValue !== undefined ? rule.constantValue : ''
-      intermediateVal = rawVal
+      intermediateVal = isNullLiteral(rawVal) ? '' : rawVal
     } else if (rule.sourceType === 'combine') {
       const parts = (rule.combineFields || []).map(f => {
         const v = rawRow[f]
+        if (isNullLiteral(v)) return ''
         return v !== undefined && v !== null ? String(v).trim() : ''
       }).filter(Boolean)
       rawVal = parts.join(rule.combineSeparator || ' ')
@@ -825,7 +862,7 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
       const parsedJson = safeParseJson(rawVal)
       if (!parsedJson) {
         intermediateVal = ''
-        if (rawVal && String(rawVal).trim()) {
+        if (rawVal && String(rawVal).trim() && !isNullLiteral(rawVal)) {
           error = '非合法 JSON 格式'
         }
       } else if (rule.combinePaths && rule.combinePaths.length > 0) {
@@ -861,10 +898,19 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
     } else {
       // 默认单字段映射 'field'
       rawVal = rule.sourceField ? rawRow[rule.sourceField] : ''
-      intermediateVal = applyFieldCleanRules(rawVal, rule.cleanRules || [], rawRow)
+      const src = isNullLiteral(rawVal) ? '' : rawVal
+      intermediateVal = applyFieldCleanRules(src, rule.cleanRules || [], rawRow)
     }
 
-    if ((intermediateVal === null || intermediateVal === undefined || intermediateVal === '') && rule.defaultValue !== undefined && rule.defaultValue !== '') {
+    if (isNullLiteral(intermediateVal)) {
+      intermediateVal = ''
+    }
+
+    // 默认值回退
+    if ((intermediateVal === null || intermediateVal === undefined || intermediateVal === '') &&
+        rule.defaultValue !== undefined &&
+        rule.defaultValue !== '' &&
+        !isNullLiteral(rule.defaultValue)) {
       intermediateVal = rule.defaultValue
     }
 
@@ -877,8 +923,8 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
 
     return {
       rowIndex: rawRow._rawRowIndex || (idx + 1),
-      rawVal: rawVal !== undefined && rawVal !== null ? rawVal : '',
-      cleanedVal: intermediateVal !== undefined && intermediateVal !== null ? intermediateVal : '',
+      rawVal: rawVal !== undefined && rawVal !== null && !isNullLiteral(rawVal) ? rawVal : '',
+      cleanedVal: intermediateVal !== undefined && intermediateVal !== null && !isNullLiteral(intermediateVal) ? intermediateVal : '',
       error
     }
   })
