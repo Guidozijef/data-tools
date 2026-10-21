@@ -30,9 +30,51 @@
         <input
           :value="separator"
           class="form-input form-input-sm sep-input"
-          placeholder="如: 空格, 逗号"
+          placeholder="留空即直接紧凑拼接（无空格）"
           @input="$emit('update:separator', $event.target.value)"
         />
+        <div class="sep-presets-mini">
+          <button
+            type="button"
+            class="mini-preset-btn"
+            :class="{ 'is-active': separator === '' || separator === undefined }"
+            @click="$emit('update:separator', '')"
+          >
+            无连接符(紧凑)
+          </button>
+          <button
+            type="button"
+            class="mini-preset-btn"
+            :class="{ 'is-active': separator === ' ' }"
+            @click="$emit('update:separator', ' ')"
+          >
+            空格
+          </button>
+          <button
+            type="button"
+            class="mini-preset-btn"
+            :class="{ 'is-active': separator === '-' }"
+            @click="$emit('update:separator', '-')"
+          >
+            -
+          </button>
+          <button
+            type="button"
+            class="mini-preset-btn"
+            :class="{ 'is-active': separator === '_' }"
+            @click="$emit('update:separator', '_')"
+          >
+            _
+          </button>
+          <button
+            type="button"
+            class="mini-preset-btn"
+            :class="{ 'is-active': separator === ',' }"
+            @click="$emit('update:separator', ',')"
+          >
+            ,
+          </button>
+        </div>
       </div>
 
       <!-- 弹出树形结构抽屉/弹窗的按钮 -->
@@ -494,7 +536,7 @@ const props = defineProps({
   },
   separator: {
     type: String,
-    default: ' '
+    default: ''
   },
   sourceField: {
     type: String,
@@ -542,7 +584,7 @@ const currentExtractedPreview = computed(() => {
       const v = getNestedJsonValue(sampleJsonObj.value, p)
       return v !== null && v !== undefined ? String(v) : ''
     }).filter(Boolean)
-    return parts.length > 0 ? parts.join(props.separator || ' ') : 'NULL'
+    return parts.length > 0 ? parts.join(props.separator !== undefined ? props.separator : '') : '(空)'
   }
   if (!props.modelValue) return 'NULL'
   const v = getNestedJsonValue(sampleJsonObj.value, props.modelValue)
@@ -567,7 +609,7 @@ const multiRowPreviews = computed(() => {
         const v = getNestedJsonValue(parsed, p)
         return v !== null && v !== undefined ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
       }).filter(Boolean)
-      const res = parts.join(props.separator || ' ')
+      const res = parts.join(props.separator !== undefined ? props.separator : '')
       return { rowIndex: r._rawRowIndex || (idx + 1), val: res || '(空)', isNull: !res }
     } else {
       const v = getNestedJsonValue(parsed, props.modelValue)
@@ -1787,5 +1829,41 @@ watch(() => props.modelValue, (newVal) => {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
+}
+
+.sep-setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sep-presets-mini {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini-preset-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mini-preset-btn:hover {
+  background: var(--bg-hover);
+  color: #fff;
+}
+
+.mini-preset-btn.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
 }
 </style>

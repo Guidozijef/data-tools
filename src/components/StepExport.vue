@@ -153,8 +153,8 @@
           <div class="form-group">
             <label class="form-label">表头格式:</label>
             <select v-model="excelConfig.headerMode" class="form-select">
+              <option value="name">使用物理字段名 (如: mobile, username) - 默认推荐入库</option>
               <option value="label">使用中文业务名称 (如: 手机号, 用户名)</option>
-              <option value="name">使用物理字段名 (如: mobile, username)</option>
               <option value="both">物理字段名 + 中文 (如: mobile (手机号))</option>
             </select>
           </div>
@@ -205,6 +205,15 @@
           <div class="format-input-group">
             <label class="form-label">CSV 文件名:</label>
             <input v-model="csvFileName" class="form-input form-input-sm" />
+          </div>
+
+          <div class="format-input-group">
+            <label class="form-label">表头格式:</label>
+            <select v-model="excelConfig.headerMode" class="form-select form-select-sm">
+              <option value="name">使用物理字段名 (如: mobile, username) - 默认推荐</option>
+              <option value="label">使用中文业务名称 (如: 手机号, 用户名)</option>
+              <option value="both">物理字段名 + 中文 (如: mobile (手机号))</option>
+            </select>
           </div>
 
           <button class="btn btn-success" @click="handleExportCsv">
@@ -334,11 +343,11 @@ function downloadSql() {
   emit('notify', { message: `已成功下载 ${fileName}`, type: 'success' })
 }
 
-// Excel 导出配置
+// Excel 与文件导出配置
 const excelConfig = reactive({
   fileName: `cleaned_${props.targetSchema.tableName || 'data'}`,
   sheetName: 'CleanedData',
-  headerMode: 'label',
+  headerMode: 'name', // 默认使用数据库物理字段名（如 user_code, mobile），便于下游数据库直接导入
   selectedColumns: props.targetFields.map(f => f.name)
 })
 
@@ -357,13 +366,20 @@ function toggleColumn(colName) {
   }
 }
 
+/**
+ * 根据所选表头模式计算输出的表头映射字典
+ * 物理字段名模式下直接使用 f.name，确保下游工具（Navicat、DBeaver、MySQL 等）开箱即用
+ * @returns {Record<string, string>} 字段名到表头标签的映射字典
+ */
 function getHeaderLabelsMap() {
   const map = {}
   props.targetFields.forEach(f => {
-    if (excelConfig.headerMode === 'label') {
+    if (excelConfig.headerMode === 'name') {
+      map[f.name] = f.name
+    } else if (excelConfig.headerMode === 'label') {
       map[f.name] = f.label || f.name
     } else if (excelConfig.headerMode === 'both') {
-      map[f.name] = `${f.name} (${f.label})`
+      map[f.name] = f.label ? `${f.name} (${f.label})` : f.name
     } else {
       map[f.name] = f.name
     }

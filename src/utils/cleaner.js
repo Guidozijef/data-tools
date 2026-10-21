@@ -93,7 +93,9 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
           if (convertNullToEmpty && isNullLiteral(val)) return ''
           return val !== undefined && val !== null ? String(val).trim() : ''
         }).filter(Boolean)
-        transformedVal = parts.join(rule.combineSeparator || ' ')
+        // 连接符兼容：用户未配置或留空时默认无缝拼接 ''，不强制插入空格
+        const sep = rule.combineSeparator !== undefined ? rule.combineSeparator : ''
+        transformedVal = parts.join(sep)
       } else if (rule.sourceType === 'json_path') {
         // 核心新特性：从多层嵌套 JSON 中提取单字段或多字段拼接
         const sourceJsonStr = rawRow[rule.sourceField]
@@ -111,7 +113,9 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
             const v = getNestedJsonValue(parsedJson, p)
             return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
           }).filter(Boolean)
-          transformedVal = parts.join(rule.jsonSeparator || ' ')
+          // JSON 多路径拼接连接符：兼容空字符串无缝拼接
+          const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
+          transformedVal = parts.join(jsonSep)
         } else if (rule.jsonPath) {
           // 单路径提取 (如 profile.address.city)
           const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
@@ -855,7 +859,8 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
         if (isNullLiteral(v)) return ''
         return v !== undefined && v !== null ? String(v).trim() : ''
       }).filter(Boolean)
-      rawVal = parts.join(rule.combineSeparator || ' ')
+      const sep = rule.combineSeparator !== undefined ? rule.combineSeparator : ''
+      rawVal = parts.join(sep)
       intermediateVal = rawVal
     } else if (rule.sourceType === 'json_path') {
       rawVal = rule.sourceField ? rawRow[rule.sourceField] : ''
@@ -870,7 +875,8 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
           const v = getNestedJsonValue(parsedJson, p)
           return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
         }).filter(Boolean)
-        intermediateVal = parts.join(rule.jsonSeparator || ' ')
+        const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
+        intermediateVal = parts.join(jsonSep)
       } else if (rule.jsonPath) {
         const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
         intermediateVal = extracted !== null && extracted !== undefined

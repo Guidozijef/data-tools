@@ -356,13 +356,55 @@
                 </label>
               </div>
               <div class="combine-sep-row">
-                <label class="detail-label">拼接连接符 (Separator):</label>
+                <label class="detail-label">拼接连接符:</label>
                 <input
                   v-model="getRule(field.name).combineSeparator"
                   class="form-input form-input-sm sep-input"
-                  placeholder="如: 空格, 逗号, 破折号"
+                  placeholder="留空即直接紧凑拼接（无空格）"
                   @input="emitRulesUpdate"
                 />
+                <div class="sep-presets">
+                  <button
+                    type="button"
+                    class="btn btn-xs"
+                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '' || getRule(field.name).combineSeparator === undefined }"
+                    @click="getRule(field.name).combineSeparator = ''; emitRulesUpdate()"
+                  >
+                    无连接符(默认紧凑)
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs"
+                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === ' ' }"
+                    @click="getRule(field.name).combineSeparator = ' '; emitRulesUpdate()"
+                  >
+                    空格
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs"
+                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '-' }"
+                    @click="getRule(field.name).combineSeparator = '-'; emitRulesUpdate()"
+                  >
+                    破折号 (-)
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs"
+                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '_' }"
+                    @click="getRule(field.name).combineSeparator = '_'; emitRulesUpdate()"
+                  >
+                    下划线 (_)
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-xs"
+                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === ',' }"
+                    @click="getRule(field.name).combineSeparator = ','; emitRulesUpdate()"
+                  >
+                    逗号 (,)
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -702,7 +744,7 @@ function getRule(fieldName) {
       jsonPath: '',
       combinePaths: [],
       isCombine: false,
-      jsonSeparator: ' ',
+      jsonSeparator: '',
       customJsCode: ''
     }
   }
@@ -1592,9 +1634,17 @@ function removeDictEntry(fieldName, pIdx) {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .sep-input {
   max-width: 140px;
+}
+
+.sep-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 </style>

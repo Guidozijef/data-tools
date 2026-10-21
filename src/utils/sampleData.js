@@ -329,7 +329,7 @@ export const SAMPLE_MAPPING_RULES = [
     sourceField: '扩展属性 (多层JSON格式)',
     sourceType: 'json_path',
     combinePaths: ['profile.address.province', 'profile.address.city', 'profile.address.street'],
-    jsonSeparator: ' ',
+    jsonSeparator: '', // 中文地址采用无缝拼接，不插入多余空格
     cleanRules: [
       { type: 'trim', enabled: true }
     ],
