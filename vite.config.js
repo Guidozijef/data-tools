@@ -7,5 +7,5 @@ export default defineConfig({
   build: {
     outDir: "docs",
   },
-  base: "/data-tools/",
+  base: "/project/iNdk1zSG/",
 });
