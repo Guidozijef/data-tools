@@ -107,23 +107,29 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
             cleanedRow._errors[fieldName] = `源字段 [${rule.sourceField}] 的内容不是合法的 JSON 格式`
             cleanedRow._hasError = true
           }
-        } else if (rule.combinePaths && rule.combinePaths.length > 0) {
-          // 多路径拼接提取 (如 profile.city + " " + profile.street)
-          const parts = rule.combinePaths.map(p => {
-            const v = getNestedJsonValue(parsedJson, p)
-            return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
-          }).filter(Boolean)
-          // JSON 多路径拼接连接符：兼容空字符串无缝拼接
-          const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
-          transformedVal = parts.join(jsonSep)
-        } else if (rule.jsonPath) {
-          // 单路径提取 (如 profile.address.city)
-          const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
-          transformedVal = (extracted !== null && extracted !== undefined)
-            ? (typeof extracted === 'object' ? JSON.stringify(extracted) : extracted)
-            : ''
+        } else if (rule.isCombine) {
+          // 多路径拼接提取模式 (如 profile.city + " " + profile.street)
+          if (rule.combinePaths && rule.combinePaths.length > 0) {
+            const parts = rule.combinePaths.map(p => {
+              const v = getNestedJsonValue(parsedJson, p)
+              return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
+            }).filter(Boolean)
+            // JSON 多路径拼接连接符：兼容空字符串无缝拼接
+            const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
+            transformedVal = parts.join(jsonSep)
+          } else {
+            transformedVal = ''
+          }
         } else {
-          transformedVal = ''
+          // 单路径提取模式 (如 profile.address.city)
+          if (rule.jsonPath) {
+            const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
+            transformedVal = (extracted !== null && extracted !== undefined)
+              ? (typeof extracted === 'object' ? JSON.stringify(extracted) : extracted)
+              : ''
+          } else {
+            transformedVal = ''
+          }
         }
 
         // 提取后仍可串联执行标准清洗规则 (如 trim, 手机号规整, 日期标准化等)
@@ -169,6 +175,21 @@ export function runCleaningPipeline(sourceRows, targetFields, mappingRules, opti
           rule?.defaultValue !== '' &&
           !isNullLiteral(rule.defaultValue)) {
         transformedVal = rule.defaultValue
+      }
+
+      // 针对目标表定义为 datetime 或 timestamp 的字段进行秒数安全对齐
+      // 保证即使未配置 standard_datetime 规则，也符合标准时间精度，避免丢失秒数
+      if (field && (field.type === 'datetime' || field.type === 'timestamp')) {
+        if (typeof transformedVal === 'string' && transformedVal !== '') {
+          const trimmedVal = transformedVal.trim()
+          if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}:\d{1,2}$/.test(trimmedVal)) {
+            // 形如 2023-05-20 15:30 -> 2023-05-20 15:30:00
+            transformedVal = `${trimmedVal}:00`
+          } else if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/.test(trimmedVal)) {
+            // 纯日期转 datetime 补齐 00:00:00
+            transformedVal = `${trimmedVal} 00:00:00`
+          }
+        }
       }
 
       // 类型规整与校验
@@ -284,6 +305,9 @@ export function getNestedJsonValue(obj, path) {
 
     let current = obj
     for (const key of keys) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        return undefined // 安全防护：杜绝原型链污染
+      }
       if (current === null || current === undefined) {
         return undefined
       }
@@ -615,9 +639,15 @@ export function normalizeDateTime(val, targetFormat = 'YYYY-MM-DD HH:mm:ss') {
       s = `${s.substring(0, 4)}-${s.substring(4, 6)}-${s.substring(6, 8)}`
     }
 
-    const parsed = new Date(s)
-    if (!isNaN(parsed.getTime())) {
-      dateObj = parsed
+    // 处理纯日期格式 YYYY-MM-DD，显式使用本地时间构造，避免 new Date('YYYY-MM-DD') 默认以 UTC 解析导致东八区偏移成 08:00:00
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const parts = s.split('-').map(Number)
+      dateObj = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0)
+    } else {
+      const parsed = new Date(s)
+      if (!isNaN(parsed.getTime())) {
+        dateObj = parsed
+      }
     }
   }
 
@@ -870,20 +900,28 @@ export function computeFieldSampleTransform(field, rule, sampleRows = [], limit 
         if (rawVal && String(rawVal).trim() && !isNullLiteral(rawVal)) {
           error = '非合法 JSON 格式'
         }
-      } else if (rule.combinePaths && rule.combinePaths.length > 0) {
-        const parts = rule.combinePaths.map(p => {
-          const v = getNestedJsonValue(parsedJson, p)
-          return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
-        }).filter(Boolean)
-        const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
-        intermediateVal = parts.join(jsonSep)
-      } else if (rule.jsonPath) {
-        const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
-        intermediateVal = extracted !== null && extracted !== undefined
-          ? (typeof extracted === 'object' ? JSON.stringify(extracted) : extracted)
-          : ''
+      } else if (rule.isCombine) {
+        // 多路径拼接提取模式
+        if (rule.combinePaths && rule.combinePaths.length > 0) {
+          const parts = rule.combinePaths.map(p => {
+            const v = getNestedJsonValue(parsedJson, p)
+            return (v !== null && v !== undefined) ? (typeof v === 'object' ? JSON.stringify(v) : String(v).trim()) : ''
+          }).filter(Boolean)
+          const jsonSep = rule.jsonSeparator !== undefined ? rule.jsonSeparator : ''
+          intermediateVal = parts.join(jsonSep)
+        } else {
+          intermediateVal = ''
+        }
       } else {
-        intermediateVal = ''
+        // 单路径提取模式
+        if (rule.jsonPath) {
+          const extracted = getNestedJsonValue(parsedJson, rule.jsonPath)
+          intermediateVal = extracted !== null && extracted !== undefined
+            ? (typeof extracted === 'object' ? JSON.stringify(extracted) : extracted)
+            : ''
+        } else {
+          intermediateVal = ''
+        }
       }
       intermediateVal = applyFieldCleanRules(intermediateVal, rule.cleanRules || [], rawRow)
     } else if (rule.sourceType === 'custom_js') {

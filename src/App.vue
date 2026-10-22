@@ -31,6 +31,8 @@
         :header-row-index="headerRowIndex"
         :skip-empty-rows="skipEmptyRows"
         :convert-null-to-empty="convertNullToEmpty"
+        :is-loading="isUploading"
+        :loading-file-name="uploadingFileName"
         @file-selected="handleFileSelected"
         @load-demo="handleLoadDemo"
         @change-sheet="handleChangeSheet"
@@ -138,7 +140,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import NotificationToast from './components/NotificationToast.vue'
 import StepHeader from './components/StepHeader.vue'
 import StepUpload from './components/StepUpload.vue'
@@ -165,6 +167,8 @@ const showTemplateModal = ref(false)
 
 // 1. 数据源状态
 const fileInfo = reactive({ name: '', size: 0 })
+const isUploading = ref(false)
+const uploadingFileName = ref('')
 const activeWorkbook = ref(null)
 const sheetNames = ref([])
 const currentSheet = ref('')
@@ -214,8 +218,22 @@ function onNotify({ message, type = 'info', title = '' }) {
   }
 }
 
-// 文件上传与解析
+/**
+ * 处理用户选择或拖入的 Excel / CSV 文件
+ * 包含异步加载动画、主线程让渡与绝对兜底的安全生命周期管理
+ * @param {File} file 上传的文件对象
+ */
 async function handleFileSelected(file) {
+  if (!file) return
+
+  // 启动加载动效并记录文件名
+  isUploading.value = true
+  uploadingFileName.value = file.name
+
+  // 让渡单线程渲染时间片，确保 Vue 完成 DOM 渲染，浏览器绘制首帧 Loading 动效
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 80))
+
   try {
     const res = await readExcelFile(file)
     activeWorkbook.value = res.workbook
@@ -228,7 +246,11 @@ async function handleFileSelected(file) {
     parseActiveSheet()
     onNotify({ message: `成功解析文件 [${file.name}]，读取到 ${sheetNames.value.length} 个工作表`, type: 'success' })
   } catch (err) {
-    onNotify({ message: err.message, type: 'error' })
+    onNotify({ message: '文件解析失败: ' + err.message, type: 'error' })
+  } finally {
+    // 无论是成功解析还是抛出异常失败，必须在 finally 中百分之百重置并隐藏加载状态
+    isUploading.value = false
+    uploadingFileName.value = ''
   }
 }
 

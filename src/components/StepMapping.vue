@@ -111,7 +111,7 @@
           class="mapping-row-wrapper"
           :class="{ 'is-expanded': activeExpandedField === field.name }"
         >
-          <div class="mapping-row-main">
+          <div class="mapping-row-main" @click="handleRowClick(field.name, $event)">
             <!-- 目标字段详情 -->
             <div class="col-target">
               <div class="target-name-line">
@@ -179,12 +179,27 @@
                   <button
                     type="button"
                     class="btn btn-outline btn-sm json-config-quick-btn"
-                    :class="{ 'is-active': activeExpandedField === field.name }"
+                    :class="{
+                      'is-active': activeExpandedField === field.name,
+                      'is-combine-mode': getRule(field.name).isCombine
+                    }"
                     @click="openSpecialConfig(field.name)"
-                    title="点击配置/切换 JSON 嵌套字段提取路径"
+                    :title="getRule(field.name).isCombine ? '多属性拼接模式：点击配置拼接列表' : '单属性提取模式：点击配置提取路径'"
                   >
-                    <Braces :size="13" class="text-primary" />
-                    <span>{{ getJsonPathSummary(field.name) }}</span>
+                    <template v-if="getRule(field.name).isCombine">
+                      <Layers :size="13" class="text-indigo" />
+                      <span class="json-mode-pill is-combine">多属性拼接</span>
+                      <span class="json-path-summary-text mono-text" :title="getJsonPathSummary(field.name)">
+                        {{ getJsonPathSummary(field.name) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <Target :size="13" class="text-emerald" />
+                      <span class="json-mode-pill is-single">单属性</span>
+                      <span class="json-path-summary-text mono-text" :title="getJsonPathSummary(field.name)">
+                        {{ getJsonPathSummary(field.name) }}
+                      </span>
+                    </template>
                   </button>
                 </div>
 
@@ -274,7 +289,7 @@
                     v-for="(r, rIdx) in getEnabledRules(field.name)"
                     :key="rIdx"
                     class="rule-chip"
-                    :title="r.type"
+                    :title="getRuleTooltip(r.type)"
                   >
                     {{ getRuleLabel(r.type) }}
                   </span>
@@ -286,12 +301,13 @@
             <!-- 操作折叠规则展开按钮 -->
             <div class="col-action">
               <button
+                type="button"
                 class="btn btn-outline btn-sm rule-config-btn"
                 :class="{ 'is-active': activeExpandedField === field.name }"
-                @click="toggleExpand(field.name)"
+                @click.stop="toggleExpand(field.name)"
               >
                 <Settings :size="14" />
-                <span>清洗规则</span>
+                <span>{{ activeExpandedField === field.name ? '收起配置' : '清洗规则' }}</span>
                 <ChevronDown :size="14" class="expand-icon" />
               </button>
             </div>
@@ -299,19 +315,33 @@
 
           <!-- 展开规则配置详细面板 -->
           <div v-if="activeExpandedField === field.name" class="rule-details-panel">
-            <div class="panel-section-title">
-              <Sparkles :size="15" class="text-primary" />
-              <span>配置 [{{ field.name }}] 的数据清洗与格式化规则</span>
+            <!-- 1. 顶部清晰显眼的从属锚定横幅 (明确当前配置的是哪个字段) -->
+            <div class="panel-anchor-banner">
+              <div class="banner-target-info">
+                <span class="banner-tag">正在配置字段:</span>
+                <span class="banner-field-name">{{ field.name }}</span>
+                <span v-if="field.label" class="banner-field-label">({{ field.label }})</span>
+                <span class="banner-type-badge">{{ field.type.toUpperCase() }}</span>
+                <span v-if="field.isPrimary" class="badge badge-warning">主键</span>
+                <span v-if="!field.nullable" class="badge badge-danger">必填</span>
+              </div>
+              <div class="banner-source-info">
+                <span class="source-info-label">关联数据源:</span>
+                <span class="source-info-value">{{ getSourceSummaryText(field.name) }}</span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-outline btn-xs banner-close-btn"
+                @click="toggleExpand(field.name)"
+                title="收起此字段的清洗规则"
+              >
+                <ChevronUp :size="14" />
+                <span>收起面板</span>
+              </button>
             </div>
 
-            <!-- JSON 路径可视化提取配置面板 -->
-            <div v-if="getRule(field.name).sourceType === 'json_path'" class="panel-special-card">
-              <div class="special-card-header">
-                <Braces :size="16" class="text-primary" />
-                <span class="special-card-title">
-                  从源列 [{{ getRule(field.name).sourceField || '未选择' }}] 的多层嵌套 JSON 中提取单字段或拼接多个字段
-                </span>
-              </div>
+            <!-- 2. 特殊来源提取配置区 (仅在 json_path, custom_js, combine 时展示，扁平化无套娃) -->
+            <div v-if="getRule(field.name).sourceType === 'json_path'" class="flat-config-section">
               <JsonPathSelector
                 v-model="getRule(field.name).jsonPath"
                 v-model:combine-paths="getRule(field.name).combinePaths"
@@ -326,12 +356,11 @@
               />
             </div>
 
-            <!-- 自定义 JS 脚本编辑器面板 -->
-            <div v-if="getRule(field.name).sourceType === 'custom_js'" class="panel-special-card">
-              <div class="special-card-header">
-                <Code2 :size="16" class="text-amber" />
-                <span class="special-card-title">
-                  针对字段 [{{ field.name }}] 编写自定义 JavaScript 清洗脚本（支持 if-else、正则、多列数学运算及 JSON 访问）
+            <div v-if="getRule(field.name).sourceType === 'custom_js'" class="flat-config-section">
+              <div class="flat-section-header">
+                <Code2 :size="14" class="text-amber" />
+                <span class="flat-section-title">
+                  针对 [{{ field.name }}] 编写自定义 JavaScript 清洗脚本:
                 </span>
               </div>
               <CustomJsEditor
@@ -342,314 +371,340 @@
               />
             </div>
 
-            <!-- 多字段拼接配置区 -->
-            <div v-if="getRule(field.name).sourceType === 'combine'" class="combine-details-box">
-              <label class="detail-label">选择要拼接的源 Excel 列 (按勾选顺序):</label>
-              <div class="source-checkbox-grid">
-                <label v-for="h in sourceHeaders" :key="h" class="source-checkbox-item">
+            <div v-if="getRule(field.name).sourceType === 'combine'" class="flat-config-section">
+              <div class="combine-clean-body">
+                <div class="combine-cols-group">
+                  <label class="clean-sub-label">选择要拼接的源 Excel 列 (按勾选顺序):</label>
+                  <div class="source-checkbox-grid">
+                    <label v-for="h in sourceHeaders" :key="h" class="source-checkbox-item">
+                      <input
+                        type="checkbox"
+                        :checked="(getRule(field.name).combineFields || []).includes(h)"
+                        @change="toggleCombineField(field.name, h)"
+                      />
+                      <span>{{ h }}</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="combine-sep-row">
+                  <label class="clean-sub-label">拼接连接符:</label>
                   <input
-                    type="checkbox"
-                    :checked="(getRule(field.name).combineFields || []).includes(h)"
-                    @change="toggleCombineField(field.name, h)"
+                    v-model="getRule(field.name).combineSeparator"
+                    class="form-input form-input-xs sep-input"
+                    placeholder="默认紧凑(空)"
+                    @input="emitRulesUpdate"
                   />
-                  <span>{{ h }}</span>
-                </label>
-              </div>
-              <div class="combine-sep-row">
-                <label class="detail-label">拼接连接符:</label>
-                <input
-                  v-model="getRule(field.name).combineSeparator"
-                  class="form-input form-input-sm sep-input"
-                  placeholder="留空即直接紧凑拼接（无空格）"
-                  @input="emitRulesUpdate"
-                />
-                <div class="sep-presets">
-                  <button
-                    type="button"
-                    class="btn btn-xs"
-                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '' || getRule(field.name).combineSeparator === undefined }"
-                    @click="getRule(field.name).combineSeparator = ''; emitRulesUpdate()"
-                  >
-                    无连接符(默认紧凑)
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs"
-                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === ' ' }"
-                    @click="getRule(field.name).combineSeparator = ' '; emitRulesUpdate()"
-                  >
-                    空格
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs"
-                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '-' }"
-                    @click="getRule(field.name).combineSeparator = '-'; emitRulesUpdate()"
-                  >
-                    破折号 (-)
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs"
-                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === '_' }"
-                    @click="getRule(field.name).combineSeparator = '_'; emitRulesUpdate()"
-                  >
-                    下划线 (_)
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-xs"
-                    :class="{ 'btn-primary': getRule(field.name).combineSeparator === ',' }"
-                    @click="getRule(field.name).combineSeparator = ','; emitRulesUpdate()"
-                  >
-                    逗号 (,)
-                  </button>
+                  <div class="sep-presets">
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      :class="{ 'btn-primary': getRule(field.name).combineSeparator === '' || getRule(field.name).combineSeparator === undefined }"
+                      @click="getRule(field.name).combineSeparator = ''; emitRulesUpdate()"
+                    >
+                      紧凑
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      :class="{ 'btn-primary': getRule(field.name).combineSeparator === ' ' }"
+                      @click="getRule(field.name).combineSeparator = ' '; emitRulesUpdate()"
+                    >
+                      空格
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      :class="{ 'btn-primary': getRule(field.name).combineSeparator === '-' }"
+                      @click="getRule(field.name).combineSeparator = '-'; emitRulesUpdate()"
+                    >
+                      -
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      :class="{ 'btn-primary': getRule(field.name).combineSeparator === '_' }"
+                      @click="getRule(field.name).combineSeparator = '_'; emitRulesUpdate()"
+                    >
+                      _
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      :class="{ 'btn-primary': getRule(field.name).combineSeparator === ',' }"
+                      @click="getRule(field.name).combineSeparator = ','; emitRulesUpdate()"
+                    >
+                      ,
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- 规则启用勾选开关组 -->
-            <div class="rule-toggles-grid">
-              <!-- 去除前后空格 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'trim')"
-                  @change="toggleRuleType(field.name, 'trim')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">去除前后空格 (Trim)</span>
-                  <span class="toggle-sub">剥离文本前后的空白字符</span>
-                </div>
-              </label>
+            <!-- 3. 清洗规则流水线 (紧凑单行胶囊开关，消除臃肿空间) -->
+            <div class="flat-rules-section">
+              <div class="rules-section-bar">
+                <span class="rules-bar-title">
+                  <Sparkles :size="13" class="text-primary" />
+                  <span>清洗转换流水线:</span>
+                </span>
+                <div class="compact-rule-toggles">
+                  <!-- 去除前后空格 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'trim') }"
+                    :title="getRuleTooltip('trim')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'trim')"
+                      @change="toggleRuleType(field.name, 'trim')"
+                    />
+                    <span>去空格 (Trim)</span>
+                  </label>
 
-              <!-- 规整连串空格 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'clean_whitespace')"
-                  @change="toggleRuleType(field.name, 'clean_whitespace')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">规整空格 (Clean Space)</span>
-                  <span class="toggle-sub">连续空格/制表符替换为单空格</span>
-                </div>
-              </label>
+                  <!-- 规整连串空格 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'clean_whitespace') }"
+                    :title="getRuleTooltip('clean_whitespace')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'clean_whitespace')"
+                      @change="toggleRuleType(field.name, 'clean_whitespace')"
+                    />
+                    <span>规整空格</span>
+                  </label>
 
-              <!-- 手机号标准清洗 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'clean_phone')"
-                  @change="toggleRuleType(field.name, 'clean_phone')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">手机号格式化</span>
-                  <span class="toggle-sub">剥离+86、破折号及多余字符</span>
-                </div>
-              </label>
+                  <!-- 手机号标准清洗 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'clean_phone') }"
+                    :title="getRuleTooltip('clean_phone')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'clean_phone')"
+                      @change="toggleRuleType(field.name, 'clean_phone')"
+                    />
+                    <span>手机格式化</span>
+                  </label>
 
-              <!-- 数值与金额提取 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'extract_number')"
-                  @change="toggleRuleType(field.name, 'extract_number')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">提取金额/数字</span>
-                  <span class="toggle-sub">过滤货币符号￥$、千分位逗号</span>
-                </div>
-              </label>
+                  <!-- 数值与金额提取 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'extract_number') }"
+                    :title="getRuleTooltip('extract_number')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'extract_number')"
+                      @change="toggleRuleType(field.name, 'extract_number')"
+                    />
+                    <span>提取金额/数值</span>
+                  </label>
 
-              <!-- 标准日期时间规范化 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'standard_datetime')"
-                  @change="toggleRuleType(field.name, 'standard_datetime')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">标准日期时间规整</span>
-                  <span class="toggle-sub">解析各类旧格式并规范化</span>
-                </div>
-              </label>
+                  <!-- 标准日期时间规范化 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'standard_datetime') }"
+                    :title="getRuleTooltip('standard_datetime')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'standard_datetime')"
+                      @change="toggleRuleType(field.name, 'standard_datetime')"
+                    />
+                    <span>日期规整</span>
+                  </label>
 
-              <!-- 字典/枚举值映射 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'dict_mapping')"
-                  @change="toggleRuleType(field.name, 'dict_mapping')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">字典/枚举值映射</span>
-                  <span class="toggle-sub">如 男->1, 女->2, 启用->1</span>
-                </div>
-              </label>
+                  <!-- 字典/枚举值映射 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'dict_mapping') }"
+                    :title="getRuleTooltip('dict_mapping')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'dict_mapping')"
+                      @change="toggleRuleType(field.name, 'dict_mapping')"
+                    />
+                    <span>字典映射</span>
+                  </label>
 
-              <!-- 转为大写 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'uppercase')"
-                  @change="toggleRuleType(field.name, 'uppercase')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">全部转大写 (UPPER)</span>
-                  <span class="toggle-sub">英文字母转大写</span>
-                </div>
-              </label>
+                  <!-- 转为大写 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'uppercase') }"
+                    :title="getRuleTooltip('uppercase')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'uppercase')"
+                      @change="toggleRuleType(field.name, 'uppercase')"
+                    />
+                    <span>转大写</span>
+                  </label>
 
-              <!-- 手机号脱敏 -->
-              <label class="toggle-card">
-                <input
-                  type="checkbox"
-                  :checked="hasRuleType(field.name, 'mask_phone')"
-                  @change="toggleRuleType(field.name, 'mask_phone')"
-                />
-                <div class="toggle-info">
-                  <span class="toggle-title">手机号脱敏 (138****1234)</span>
-                  <span class="toggle-sub">隐藏中间4位数字</span>
+                  <!-- 手机号脱敏 -->
+                  <label
+                    class="compact-toggle-chip"
+                    :class="{ 'is-active': hasRuleType(field.name, 'mask_phone') }"
+                    :title="getRuleTooltip('mask_phone')"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="hasRuleType(field.name, 'mask_phone')"
+                      @change="toggleRuleType(field.name, 'mask_phone')"
+                    />
+                    <span>手机脱敏</span>
+                  </label>
                 </div>
-              </label>
-            </div>
+              </div>
 
-            <!-- 规则子参数配置面板 -->
-            <!-- 1. 日期格式输出选项 -->
-            <div v-if="hasRuleType(field.name, 'standard_datetime')" class="sub-config-box">
-              <label class="sub-label">期望输出的日期时间格式:</label>
-              <select
-                :value="getRuleConfig(field.name, 'standard_datetime').outputFormat || 'YYYY-MM-DD HH:mm:ss'"
-                class="form-select form-select-sm"
-                style="width: 260px;"
-                @change="updateRuleSubConfig(field.name, 'standard_datetime', 'outputFormat', $event.target.value)"
+              <!-- 规则子参数配置条 (扁平嵌入，仅在开启时单行呈现) -->
+              <div
+                v-if="hasRuleType(field.name, 'standard_datetime') || hasRuleType(field.name, 'extract_number') || hasRuleType(field.name, 'dict_mapping')"
+                class="rule-sub-params-strip"
               >
-                <option value="YYYY-MM-DD HH:mm:ss">YYYY-MM-DD HH:mm:ss (标准时间)</option>
-                <option value="YYYY-MM-DD">YYYY-MM-DD (仅日期)</option>
-                <option value="YYYY/MM/DD">YYYY/MM/DD</option>
-                <option value="YYYYMMDD">YYYYMMDD (8位连续数字)</option>
-                <option value="Timestamp (s)">UNIX 时间戳 (秒)</option>
-                <option value="Timestamp (ms)">毫秒级时间戳</option>
-              </select>
-            </div>
-
-            <!-- 2. 字典值映射编辑器 (Dictionary Mapping Editor) -->
-            <div v-if="hasRuleType(field.name, 'dict_mapping')" class="sub-config-box dict-editor">
-              <div class="dict-editor-header">
-                <span class="sub-label">字典键值对应映射表 (旧值 -> 目标入库值):</span>
-                <button
-                  class="btn btn-outline btn-sm"
-                  @click="addDictEntry(field.name)"
-                >
-                  <Plus :size="13" />
-                  <span>添加映射对</span>
-                </button>
-              </div>
-
-              <div class="dict-pairs-list">
-                <div
-                  v-for="(pair, pIdx) in getDictEntries(field.name)"
-                  :key="pIdx"
-                  class="dict-pair-row"
-                >
-                  <input
-                    :value="pair.key"
-                    class="form-input form-input-sm"
-                    placeholder="源值，如: 男"
-                    @change="onDictKeyChange(field.name, pIdx, $event.target.value)"
-                  />
-                  <ArrowRight :size="14" class="text-muted" />
-                  <input
-                    :value="pair.val"
-                    class="form-input form-input-sm"
-                    placeholder="入库值，如: 1"
-                    @change="onDictValChange(field.name, pIdx, $event.target.value)"
-                  />
-                  <button
-                    class="icon-del-btn"
-                    title="删除此映射"
-                    @click="removeDictEntry(field.name, pIdx)"
+                <!-- 1. 日期格式输出选项 -->
+                <div v-if="hasRuleType(field.name, 'standard_datetime')" class="param-inline-item">
+                  <label class="param-inline-label">🗓️ 输出日期时间格式:</label>
+                  <select
+                    :value="getRuleConfig(field.name, 'standard_datetime').outputFormat || 'YYYY-MM-DD HH:mm:ss'"
+                    class="form-select form-select-xs param-select"
+                    @change="updateRuleSubConfig(field.name, 'standard_datetime', 'outputFormat', $event.target.value)"
                   >
-                    <Trash2 :size="14" />
-                  </button>
+                    <option value="YYYY-MM-DD HH:mm:ss">YYYY-MM-DD HH:mm:ss (标准时间)</option>
+                    <option value="YYYY-MM-DD">YYYY-MM-DD (仅日期)</option>
+                    <option value="YYYY/MM/DD">YYYY/MM/DD</option>
+                    <option value="YYYYMMDD">YYYYMMDD (8位数字)</option>
+                    <option value="Timestamp (s)">UNIX 时间戳 (秒)</option>
+                    <option value="Timestamp (ms)">毫秒级时间戳</option>
+                  </select>
+                </div>
+
+                <!-- 2. 数值精度小数位 -->
+                <div v-if="hasRuleType(field.name, 'extract_number')" class="param-inline-item">
+                  <label class="param-inline-label">🔢 保留小数位数:</label>
+                  <select
+                    :value="getRuleConfig(field.name, 'extract_number').decimals ?? 2"
+                    class="form-select form-select-xs param-select-sm"
+                    @change="updateRuleSubConfig(field.name, 'extract_number', 'decimals', parseInt($event.target.value, 10))"
+                  >
+                    <option :value="0">0 (纯整数)</option>
+                    <option :value="1">1 位小数</option>
+                    <option :value="2">2 位小数 (金额常用)</option>
+                    <option :value="3">3 位小数</option>
+                    <option :value="4">4 位小数</option>
+                  </select>
+                </div>
+
+                <!-- 3. 字典映射参数块 -->
+                <div v-if="hasRuleType(field.name, 'dict_mapping')" class="param-dict-block">
+                  <div class="dict-editor-header">
+                    <span class="param-inline-label">📖 字典键值映射表 (源值 -> 目标值):</span>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-xs"
+                      @click="addDictEntry(field.name)"
+                    >
+                      <Plus :size="12" />
+                      <span>添加对</span>
+                    </button>
+                  </div>
+
+                  <div class="dict-pairs-list">
+                    <div
+                      v-for="(pair, pIdx) in getDictEntries(field.name)"
+                      :key="pIdx"
+                      class="dict-pair-row"
+                    >
+                      <input
+                        :value="pair.key"
+                        class="form-input form-input-xs"
+                        placeholder="源值，如: 男"
+                        @change="onDictKeyChange(field.name, pIdx, $event.target.value)"
+                      />
+                      <ArrowRight :size="12" class="text-muted" />
+                      <input
+                        :value="pair.val"
+                        class="form-input form-input-xs"
+                        placeholder="入库值，如: 1"
+                        @change="onDictValChange(field.name, pIdx, $event.target.value)"
+                      />
+                      <button
+                        type="button"
+                        class="icon-del-btn"
+                        title="删除此映射"
+                        @click="removeDictEntry(field.name, pIdx)"
+                      >
+                        <Trash2 :size="12" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="dict-fallback-row">
+                    <span class="param-inline-label">未匹配时默认值:</span>
+                    <input
+                      :value="getRuleConfig(field.name, 'dict_mapping').fallbackValue"
+                      class="form-input form-input-xs fallback-input"
+                      placeholder="如: 0 或 未知"
+                      @input="updateRuleSubConfig(field.name, 'dict_mapping', 'fallbackValue', $event.target.value)"
+                    />
+                  </div>
                 </div>
               </div>
-
-              <div class="dict-fallback-row">
-                <span class="sub-label">未匹配时的回退默认值:</span>
-                <input
-                  :value="getRuleConfig(field.name, 'dict_mapping').fallbackValue"
-                  class="form-input form-input-sm"
-                  placeholder="未匹配时的值，如: 0 或 未知"
-                  style="width: 220px;"
-                  @input="updateRuleSubConfig(field.name, 'dict_mapping', 'fallbackValue', $event.target.value)"
-                />
-              </div>
             </div>
 
-            <!-- 3. 数值精度小数位 -->
-            <div v-if="hasRuleType(field.name, 'extract_number')" class="sub-config-box">
-              <label class="sub-label">保留小数位数 (Decimals):</label>
-              <select
-                :value="getRuleConfig(field.name, 'extract_number').decimals ?? 2"
-                class="form-select form-select-sm"
-                style="width: 140px;"
-                @change="updateRuleSubConfig(field.name, 'extract_number', 'decimals', parseInt($event.target.value, 10))"
-              >
-                <option :value="0">0 (纯整数)</option>
-                <option :value="1">1 位小数</option>
-                <option :value="2">2 位小数 (金额常用)</option>
-                <option :value="3">3 位小数</option>
-                <option :value="4">4 位小数</option>
-              </select>
-            </div>
-
-            <!-- 实时清洗前后样本对照流水线卡片 (置于属性配置下方，且在自定义 JS 时隐藏避免重复沙箱列表) -->
+            <!-- 4. 实时清洗前后效果简明对比 (精简 3 行，支持折叠展开，杜绝冗余高度) -->
             <div
               v-if="hasSamplePreview(field.name) && getRule(field.name).sourceType !== 'custom_js'"
-              class="sample-pipeline-card"
+              class="compact-pipeline-section"
             >
-              <div class="pipeline-card-header">
-                <div class="pipeline-title">
-                  <Eye :size="15" class="text-primary" />
-                  <span>【{{ field.name }}】实时清洗前后样本对照 (前 5 行测试)</span>
+              <div class="compact-pipeline-header" @click="togglePreviewFold(field.name)">
+                <div class="pipeline-header-title">
+                  <Eye :size="12" class="text-primary" />
+                  <span>【{{ field.name }}】实时转换效果对照 (前 3 行测试)</span>
                 </div>
-                <span class="pipeline-tip">根据上方配置的提取方式与清洗规则，前 5 行真实数据的清洗结果在此实时响应更新</span>
+                <div class="pipeline-header-actions">
+                  <span class="preview-fold-hint">{{ isPreviewFolded(field.name) ? '展开预览对照' : '收起对照' }}</span>
+                  <ChevronDown :size="12" class="preview-fold-arrow" :class="{ 'is-folded': isPreviewFolded(field.name) }" />
+                </div>
               </div>
 
-              <div class="pipeline-table-wrapper">
-                <table class="pipeline-table">
+              <div v-show="!isPreviewFolded(field.name)" class="compact-table-scroll">
+                <table class="compact-sample-table">
                   <thead>
                     <tr>
-                      <th style="width: 60px;" class="th-center"># 行号</th>
+                      <th style="width: 55px;" class="th-center"># 行号</th>
                       <th>Excel 原始数据 (Raw)</th>
-                      <th style="width: 36px;" class="th-center"></th>
+                      <th style="width: 28px;" class="th-center"></th>
                       <th>清洗后目标数据 (Cleaned Output)</th>
-                      <th style="width: 150px;">字段校验状态</th>
+                      <th style="width: 90px;">校验状态</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr
-                      v-for="item in getFieldSampleList(field.name, 5)"
+                      v-for="item in getFieldSampleList(field.name, 3)"
                       :key="item.rowIndex"
                       :class="{ 'row-has-error': item.error }"
                     >
                       <td class="td-center mono-text td-muted">行 {{ item.rowIndex }}</td>
                       <td class="mono-text raw-cell" :title="String(item.rawVal)">
-                        <span v-if="item.rawVal !== '' && item.rawVal !== undefined">{{ truncate(item.rawVal, 70) }}</span>
+                        <span v-if="item.rawVal !== '' && item.rawVal !== undefined">{{ truncate(item.rawVal, 40) }}</span>
                         <span v-else class="text-muted">(空)</span>
                       </td>
                       <td class="td-center text-muted">➔</td>
                       <td class="mono-text cleaned-cell" :title="String(item.cleanedVal)">
                         <span v-if="item.cleanedVal !== '' && item.cleanedVal !== undefined" class="text-emerald font-semibold">
-                          {{ truncate(item.cleanedVal, 70) }}
+                          {{ truncate(item.cleanedVal, 40) }}
                         </span>
                         <span v-else class="text-muted">(空)</span>
                       </td>
                       <td>
-                        <span v-if="!item.error" class="badge badge-success">✓ 校验正常</span>
-                        <span v-else class="badge badge-danger" :title="item.error">⚠ {{ truncate(item.error, 18) }}</span>
+                        <span v-if="!item.error" class="badge badge-success badge-xs">✓ 正常</span>
+                        <span v-else class="badge badge-danger badge-xs" :title="item.error">⚠ 异常</span>
                       </td>
                     </tr>
                   </tbody>
@@ -672,6 +727,7 @@ import {
   Sliders,
   Settings,
   ChevronDown,
+  ChevronUp,
   Sparkles,
   Plus,
   Trash2,
@@ -679,6 +735,7 @@ import {
   Code2,
   Eye,
   Layers,
+  Target,
   FileSpreadsheet
 } from 'lucide-vue-next'
 import { autoMatchFields, computeFieldSampleTransform } from '../utils/cleaner'
@@ -753,13 +810,16 @@ function getRule(fieldName) {
 
 function getJsonPathSummary(fieldName) {
   const rule = getRule(fieldName)
-  if (rule.isCombine && rule.combinePaths && rule.combinePaths.length > 0) {
-    return `已选 ${rule.combinePaths.length} 个路径`
+  if (rule.isCombine) {
+    if (rule.combinePaths && rule.combinePaths.length > 0) {
+      return rule.combinePaths.join(' + ')
+    }
+    return '(未选拼接属性)'
   }
   if (rule.jsonPath) {
     return rule.jsonPath
   }
-  return '配置提取路径'
+  return '(未绑定路径)'
 }
 
 function openSpecialConfig(fieldName) {
@@ -807,21 +867,80 @@ function getEnabledRules(fieldName) {
   return (rule.cleanRules || []).filter(r => r.enabled !== false)
 }
 
-function getRuleLabel(type) {
-  const map = {
-    trim: 'Trim空格',
-    clean_whitespace: '空格规整',
-    clean_phone: '手机号清洗',
-    extract_number: '提取数字',
-    standard_datetime: '日期规整',
-    dict_mapping: '字典映射',
-    uppercase: '转大写',
-    lowercase: '转小写',
-    mask_phone: '手机脱敏',
-    to_int: '整数转换',
-    custom_js: 'JS脚本'
+/**
+ * 清洗转换规则详细元数据字典 (名称、功能作用说明、前后转换示例)
+ */
+const CLEAN_RULE_METAS = {
+  trim: {
+    label: '去空格 (Trim)',
+    desc: '移除文本首尾多余的空白字符、制表符及换行符',
+    example: '"  张三  " ➔ "张三"'
+  },
+  clean_whitespace: {
+    label: '规整空格',
+    desc: '将连续多个空格、全角空格及制表符压缩为单个半角空格',
+    example: '"北京   朝阳　建国门" ➔ "北京 朝阳 建国门"'
+  },
+  clean_phone: {
+    label: '手机格式化',
+    desc: '去除手机号中的 +86、国家码前缀、破折号、空格和括号，清洗为纯 11 位数字',
+    example: '"+86 138-0013-8000" ➔ "13800138000"'
+  },
+  extract_number: {
+    label: '提取金额/数值',
+    desc: '过滤货币符号(¥,$)、千分位逗号与中文字符，提取纯数字并四舍五入保留指定小数位',
+    example: '"¥ 1,299.50元" ➔ "1299.50"'
+  },
+  standard_datetime: {
+    label: '日期规整',
+    desc: '自动识别中英文斜杠、点号、时间戳等多种格式日期，标准化转换为目标统一时间',
+    example: '"2023/5/20 15:30" ➔ "2023-05-20 15:30:00"'
+  },
+  dict_mapping: {
+    label: '字典映射',
+    desc: '建立键值映射对照表，将源数据枚举文本翻译为目标系统业务编码或标准值',
+    example: '"男" ➔ 1，"女" ➔ 2，"微信支付" ➔ "WECHAT"'
+  },
+  uppercase: {
+    label: '转大写',
+    desc: '将英文字符统一转换为全大写字母，常用于业务编码、UUID或订单号前缀',
+    example: '"order_sn_abc" ➔ "ORDER_SN_ABC"'
+  },
+  lowercase: {
+    label: '转小写',
+    desc: '将英文字符统一转换为全小写字母，常用于邮箱、用户名标准化',
+    example: '"Admin@Example.COM" ➔ "admin@example.com"'
+  },
+  mask_phone: {
+    label: '手机脱敏',
+    desc: '对手机号进行隐私保护打码，保留前 3 位和后 4 位，中间 4 位隐藏为星号',
+    example: '"13800138000" ➔ "138****8000"'
+  },
+  to_int: {
+    label: '整数转换',
+    desc: '转换为纯整数数值，非数字自动安全回退为默认值 (如 0)',
+    example: '"123.45" ➔ 123'
+  },
+  custom_js: {
+    label: '自定义JS脚本',
+    desc: '运行自定义 JavaScript 代码，对整行数据进行深度清洗转换',
+    example: 'return row.first_name + row.last_name'
   }
-  return map[type] || type
+}
+
+function getRuleLabel(type) {
+  return CLEAN_RULE_METAS[type]?.label || type
+}
+
+/**
+ * 获取规则悬浮详细气泡文本（包含功能说明与示例）
+ * @param {string} ruleType 规则类型
+ * @returns {string} 格式化的悬浮提示文本
+ */
+function getRuleTooltip(ruleType) {
+  const meta = CLEAN_RULE_METAS[ruleType]
+  if (!meta) return ruleType
+  return `【${meta.label}】\n功能说明: ${meta.desc}\n转换示例: ${meta.example}`
 }
 
 function toggleExpand(fieldName) {
@@ -830,6 +949,58 @@ function toggleExpand(fieldName) {
   } else {
     activeExpandedField.value = fieldName
   }
+}
+
+/**
+ * 字段映射整行点击事件处理
+ * 通过智能事件委托，排除下拉框、输入框、按钮等交互控件，支持用户直接点击行展开或收起清洗规则
+ * @param {string} fieldName 目标字段名
+ * @param {MouseEvent} event 点击事件
+ */
+function handleRowClick(fieldName, event) {
+  const interactiveSelector = 'select, input, textarea, button, a, label, .sep-presets, .json-config-quick-btn, .js-config-quick-btn, .combine-quick-btn, .rule-config-btn'
+  if (event.target && event.target.closest(interactiveSelector)) {
+    return
+  }
+  toggleExpand(fieldName)
+}
+
+/**
+ * 获取当前字段关联数据源的摘要说明，用于清洗面板顶部清晰锚定展示
+ * @param {string} fieldName 目标字段名
+ * @returns {string} 数据源摘要文本
+ */
+function getSourceSummaryText(fieldName) {
+  const rule = getRule(fieldName)
+  if (rule.sourceType === 'ignore') return '🚫 忽略导入'
+  if (rule.sourceType === 'constant') return `📌 常量值: "${rule.constantValue || ''}"`
+  if (rule.sourceType === 'combine') {
+    const cols = (rule.combineFields || []).join(' + ')
+    return `🔗 多列拼接: ${cols ? cols : '(未勾选源列)'}`
+  }
+  if (rule.sourceType === 'json_path') {
+    if (rule.isCombine) {
+      const paths = (rule.combinePaths || []).join(' + ')
+      const sep = rule.jsonSeparator !== undefined ? ` (连接符: "${rule.jsonSeparator}")` : ''
+      return `📦 JSON 多属性拼接: [${rule.sourceField || '未选择'}] ${paths || '(未选路径)'}${sep}`
+    }
+    return `📦 JSON 单属性提取: [${rule.sourceField || '未选择'}] ${rule.jsonPath || '(未设置路径)'}`
+  }
+  if (rule.sourceType === 'custom_js') {
+    return `⚡ JS 脚本: ${rule.sourceField ? `[${rule.sourceField}]` : '全局'}`
+  }
+  return `📊 Excel 列: [${rule.sourceField || '未映射'}]`
+}
+
+// 记录各个字段抽屉内实时对照表的折叠状态（默认展开或按需记忆）
+const previewFoldState = ref({})
+
+function isPreviewFolded(fieldName) {
+  return previewFoldState.value[fieldName] === true
+}
+
+function togglePreviewFold(fieldName) {
+  previewFoldState.value[fieldName] = !previewFoldState.value[fieldName]
 }
 
 function emitRulesUpdate() {
@@ -1128,7 +1299,8 @@ function removeDictEntry(fieldName, pIdx) {
 
 .mapping-row-wrapper {
   border-bottom: 1px solid var(--border-subtle);
-  transition: background var(--transition-fast);
+  border-left: 4px solid transparent;
+  transition: all var(--transition-fast);
 }
 
 .mapping-row-wrapper:hover {
@@ -1137,6 +1309,7 @@ function removeDictEntry(fieldName, pIdx) {
 
 .mapping-row-wrapper.is-expanded {
   background: rgba(99, 102, 241, 0.04);
+  border-left-color: var(--primary);
 }
 
 .mapping-row-main {
@@ -1145,6 +1318,16 @@ function removeDictEntry(fieldName, pIdx) {
   align-items: center;
   gap: 20px;
   padding: 14px 28px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mapping-row-main select,
+.mapping-row-main input,
+.mapping-row-main button,
+.mapping-row-main a {
+  cursor: default;
+  user-select: auto;
 }
 
 /* 目标字段列 */
@@ -1240,14 +1423,49 @@ function removeDictEntry(fieldName, pIdx) {
 .json-config-quick-btn, .js-config-quick-btn, .combine-quick-btn {
   white-space: nowrap;
   font-size: 11px;
-  padding: 5px 10px;
+  padding: 4px 8px;
   flex-shrink: 0;
-  max-width: 200px;
+  max-width: 280px;
   overflow: hidden;
-  text-overflow: ellipsis;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  transition: all var(--transition-fast);
+}
+
+.json-config-quick-btn.is-combine-mode {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.json-mode-pill {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.json-mode-pill.is-single {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.json-mode-pill.is-combine {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.json-path-summary-text {
+  font-size: 11px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cbd5e1;
 }
 
 /* 实时样本数据预览条 */
@@ -1469,96 +1687,246 @@ function removeDictEntry(fieldName, pIdx) {
   transform: rotate(180deg);
 }
 
-/* 展开面板 */
+/* 展开面板与紧凑层级结构 */
 .rule-details-panel {
-  padding: 16px 24px 20px;
-  background: #101726;
-  border-top: 1px dashed var(--border-subtle);
+  padding: 10px 24px 16px;
+  background: #0c121e;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
   display: flex;
   flex-direction: column;
-  gap: 16px;
-}
-
-.panel-section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #a5b4fc;
-}
-
-.rule-toggles-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 10px;
 }
 
-.toggle-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.toggle-card:hover {
-  border-color: var(--primary-border);
-}
-
-.toggle-card input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary);
-  margin-top: 2px;
-  cursor: pointer;
-}
-
-.toggle-info {
-  display: flex;
-  flex-direction: column;
-}
-
-.toggle-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.toggle-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.3;
-}
-
-.sub-config-box {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  padding: 14px 18px;
+/* 顶部锚定横幅 (明确当前从属字段，紧凑单行) */
+.panel-anchor-banner {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.12) 0%, rgba(30, 41, 59, 0.4) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-sm);
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-.sub-label {
-  font-size: 13px;
+.banner-target-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.banner-tag {
+  font-size: 11px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.banner-field-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #a5b4fc;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+}
+
+.banner-field-label {
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.banner-type-badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  background: rgba(99, 102, 241, 0.25);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.banner-source-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.source-info-label {
+  color: var(--text-muted);
+}
+
+.source-info-value {
+  color: #38bdf8;
   font-weight: 600;
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.banner-close-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.15);
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.banner-close-btn:hover {
+  color: #fff;
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+/* 扁平特殊来源配置区 (无深层套娃) */
+.flat-config-section {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.flat-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.flat-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+/* 紧凑清洗规则流水线 */
+.flat-rules-section {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rules-section-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rules-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #a5b4fc;
+  white-space: nowrap;
+}
+
+.compact-rule-toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.compact-toggle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #cbd5e1;
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--transition-fast);
+}
+
+.compact-toggle-chip:hover {
+  border-color: rgba(99, 102, 241, 0.55);
+  background: rgba(99, 102, 241, 0.12);
+  color: #fff;
+}
+
+.compact-toggle-chip.is-active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--primary);
+  color: #c7d2fe;
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.25);
+}
+
+.compact-toggle-chip input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+/* 规则子参数内嵌条 (紧凑单行) */
+.rule-sub-params-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px dashed rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+.param-inline-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.param-inline-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.form-select-xs {
+  height: 26px;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.form-input-xs {
+  height: 26px;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.param-select {
+  width: 240px;
+}
+
+.param-select-sm {
+  width: 140px;
+}
+
+.param-dict-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fallback-input {
+  max-width: 220px;
 }
 
 /* 字典编辑器 */
-.dict-editor {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 12px;
-}
-
 .dict-editor-header {
   display: flex;
   align-items: center;
@@ -1568,26 +1936,26 @@ function removeDictEntry(fieldName, pIdx) {
 .dict-pairs-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .dict-pair-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .dict-pair-row input {
-  max-width: 200px;
+  max-width: 160px;
 }
 
 .dict-fallback-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 6px;
+  gap: 8px;
+  margin-top: 4px;
   border-top: 1px dashed var(--border-subtle);
-  padding-top: 8px;
+  padding-top: 6px;
 }
 
 .icon-del-btn {
@@ -1595,56 +1963,157 @@ function removeDictEntry(fieldName, pIdx) {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
+  padding: 2px;
 }
 
 .icon-del-btn:hover {
   color: var(--danger);
 }
 
-/* 拼接设置 */
-.combine-details-box {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  padding: 14px 18px;
+/* 拼接设置扁平布局 */
+.combine-clean-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+}
+
+.combine-cols-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clean-sub-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .source-checkbox-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
 }
 
 .source-checkbox-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 11px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
   cursor: pointer;
+  user-select: none;
+}
+
+.source-checkbox-item:hover {
+  border-color: var(--primary-border);
 }
 
 .combine-sep-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .sep-input {
-  max-width: 140px;
+  max-width: 120px;
 }
 
 .sep-presets {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
+}
+
+/* 紧凑可折叠的实时转换效果对比区 */
+.compact-pipeline-section {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.compact-pipeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.02);
+  transition: background var(--transition-fast);
+}
+
+.compact-pipeline-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pipeline-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+
+.pipeline-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.preview-fold-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.preview-fold-arrow {
+  color: var(--text-muted);
+  transition: transform var(--transition-fast);
+}
+
+.preview-fold-arrow.is-folded {
+  transform: rotate(-90deg);
+}
+
+.compact-table-scroll {
+  overflow-x: auto;
+  background: #090d16;
+}
+
+.compact-sample-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.compact-sample-table th,
+.compact-sample-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.compact-sample-table th {
+  background: #141c2b;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.compact-sample-table tr:last-child td {
+  border-bottom: none;
+}
+
+.badge-xs {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
 }
 </style>

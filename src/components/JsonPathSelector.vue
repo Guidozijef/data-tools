@@ -1,21 +1,21 @@
 <template>
-  <div class="json-path-selector-box">
-    <!-- 头部工具栏：模式切换与当前路径 -->
-    <div class="selector-top-toolbar">
-      <div class="mode-toggles">
+  <div class="json-minimal-selector">
+    <!-- 第 1 行：控制项 + 内联最终路径 + 实时提取预览 + 树形按钮（单行紧凑呈现，不单独占用行） -->
+    <div class="json-header-strip">
+      <!-- 提取模式切换胶囊 -->
+      <div class="mode-capsule">
         <button
           type="button"
-          class="mode-btn"
+          class="mode-chip"
           :class="{ 'is-active': !isCombine }"
           @click="setCombineMode(false)"
         >
           <Target :size="13" />
-          <span>单属性提取</span>
+          <span>单属性</span>
         </button>
-
         <button
           type="button"
-          class="mode-btn"
+          class="mode-chip"
           :class="{ 'is-active': isCombine }"
           @click="setCombineMode(true)"
         >
@@ -24,27 +24,27 @@
         </button>
       </div>
 
-      <!-- 多属性拼接时连接符 -->
-      <div v-if="isCombine" class="sep-setting">
-        <span class="sep-label">拼接连接符:</span>
+      <!-- 多属性拼接时连接符（仅在拼接模式下出现） -->
+      <div v-if="isCombine" class="inline-sep-group">
+        <span class="sep-label">连接符:</span>
         <input
           :value="separator"
-          class="form-input form-input-sm sep-input"
-          placeholder="留空即直接紧凑拼接（无空格）"
+          class="form-input sep-input"
+          placeholder="紧凑(空)"
           @input="$emit('update:separator', $event.target.value)"
         />
-        <div class="sep-presets-mini">
+        <div class="sep-pills">
           <button
             type="button"
-            class="mini-preset-btn"
+            class="pill-btn"
             :class="{ 'is-active': separator === '' || separator === undefined }"
             @click="$emit('update:separator', '')"
           >
-            无连接符(紧凑)
+            无
           </button>
           <button
             type="button"
-            class="mini-preset-btn"
+            class="pill-btn"
             :class="{ 'is-active': separator === ' ' }"
             @click="$emit('update:separator', ' ')"
           >
@@ -52,7 +52,7 @@
           </button>
           <button
             type="button"
-            class="mini-preset-btn"
+            class="pill-btn"
             :class="{ 'is-active': separator === '-' }"
             @click="$emit('update:separator', '-')"
           >
@@ -60,7 +60,7 @@
           </button>
           <button
             type="button"
-            class="mini-preset-btn"
+            class="pill-btn"
             :class="{ 'is-active': separator === '_' }"
             @click="$emit('update:separator', '_')"
           >
@@ -68,7 +68,7 @@
           </button>
           <button
             type="button"
-            class="mini-preset-btn"
+            class="pill-btn"
             :class="{ 'is-active': separator === ',' }"
             @click="$emit('update:separator', ',')"
           >
@@ -77,130 +77,116 @@
         </div>
       </div>
 
-      <!-- 弹出树形结构抽屉/弹窗的按钮 -->
-      <button
-        type="button"
-        class="btn btn-secondary btn-sm tree-modal-btn"
-        @click="showTreeModal = true"
-      >
-        <FolderTree :size="14" class="text-primary" />
-        <span>打开折叠树拾取器</span>
-      </button>
-    </div>
+      <!-- 嵌入式最终路径展示与编辑 (直接合并在这一行展示，不单独占用一行) -->
+      <div class="inline-path-container">
+        <!-- 单属性模式 -->
+        <template v-if="!isCombine">
+          <span class="path-inline-label">路径:</span>
+          <input
+            :value="modelValue"
+            class="form-input inline-path-input mono-text"
+            placeholder="下方下拉逐层选定，或直接输入如: user.name"
+            title="最终选定路径，可直接修改或由下方下拉选择自动生成"
+            @input="$emit('update:modelValue', $event.target.value)"
+          />
+        </template>
 
-    <!-- 紧凑级联下拉选择区 (Cascading Dropdowns) - 极简不占空间，逐层深入 -->
-    <div class="cascade-drilldown-card">
-      <div class="cascade-label-row">
-        <span class="cascade-label">
-          <GitFork :size="13" class="text-primary" />
-          <span>按层级逐步下钻选择 (极简不占屏，从顶层逐级深入):</span>
-        </span>
-        <span v-if="currentExtractedPreview !== 'NULL'" class="sample-badge">
-          当前提取值: <strong class="text-emerald">{{ currentExtractedPreview }}</strong>
+        <!-- 多属性拼接模式 -->
+        <template v-else>
+          <span class="path-inline-label">已选({{ (combinePaths || []).length }}):</span>
+          <div class="inline-combine-tags">
+            <span
+              v-for="(p, pIdx) in (combinePaths || [])"
+              :key="p"
+              class="combine-tag-chip mono-text"
+            >
+              <span>{{ p }}</span>
+              <button type="button" class="tag-close-btn" title="移除此项" @click="removeCombinePath(pIdx)">×</button>
+            </span>
+            <span v-if="!combinePaths || combinePaths.length === 0" class="inline-empty-tip">
+              (下方下钻选择后点击“加入拼接”)
+            </span>
+          </div>
+        </template>
+      </div>
+
+      <!-- 实时单点提取预览徽章 (保持原有紧凑字号) -->
+      <div v-if="currentExtractedPreview && currentExtractedPreview !== 'NULL'" class="inline-preview-badge">
+        <span class="preview-tag">第1行:</span>
+        <span class="preview-val mono-text" :title="currentExtractedPreview">
+          {{ truncate(currentExtractedPreview, 28) }}
         </span>
       </div>
 
-      <div v-if="sampleJsonObj" class="cascade-selects-row">
-        <!-- 逐级下拉框 -->
-        <div
-          v-for="(levelList, lvlIdx) in cascadeLevels"
-          :key="lvlIdx"
-          class="cascade-select-group"
-        >
-          <span v-if="lvlIdx > 0" class="cascade-divider">/</span>
-          <select
-            :value="selectedLevels[lvlIdx] || ''"
-            class="form-select form-select-sm cascade-select"
-            @change="onCascadeSelect(lvlIdx, $event.target.value)"
-          >
-            <option value="">-- 第 {{ lvlIdx + 1 }} 层属性 --</option>
-            <option
-              v-for="opt in levelList"
-              :key="opt.key"
-              :value="opt.key"
-            >
-              {{ opt.key }} {{ opt.isObject ? '📁 {...}' : `(${opt.sample || opt.type})` }}
-            </option>
-          </select>
-        </div>
+      <!-- 右侧高级树形按钮 -->
+      <button
+        type="button"
+        class="btn btn-outline btn-tree-open"
+        title="打开完整嵌套树形折叠拾取器"
+        @click="showTreeModal = true"
+      >
+        <FolderTree :size="13" class="text-primary" />
+        <span>完整结构树</span>
+      </button>
+    </div>
 
+    <!-- 第 2 行：逐层下钻级联选择行 (一层一层选择，支持任意深层嵌套) -->
+    <div v-if="sampleJsonObj && cascadeLevels.length > 0" class="cascade-row">
+      <div class="cascade-label-group">
+        <GitFork :size="13" class="text-primary" />
+        <span class="cascade-title">层级选择:</span>
+      </div>
+
+      <div class="cascade-selectors-list">
+        <template v-for="(levelKeys, idx) in cascadeLevels" :key="idx">
+          <span v-if="idx > 0" class="level-separator">/</span>
+          <div class="cascade-select-wrapper">
+            <select
+              :value="selectedLevels[idx] || ''"
+              class="cascade-select"
+              @change="onCascadeSelect(idx, $event.target.value)"
+            >
+              <option value="">{{ idx === 0 ? '-- 选择第1层属性 --' : `-- 第${idx + 1}层属性 --` }}</option>
+              <option
+                v-for="item in levelKeys"
+                :key="item.key"
+                :value="item.key"
+              >
+                {{ item.key }}{{ item.isObject ? ' ▸' : ` (${truncate(item.sample, 14)})` }}
+              </option>
+            </select>
+          </div>
+        </template>
+      </div>
+
+      <!-- 操作按钮：紧随在属性选择框后面，方便快速点击操作 -->
+      <div class="cascade-actions">
         <button
-          v-if="isCombine && selectedLevels.length > 0"
+          v-if="isCombine"
           type="button"
-          class="btn btn-primary btn-sm add-combine-btn"
+          class="btn btn-primary add-cascade-btn"
+          :disabled="selectedLevels.length === 0"
+          title="将当前选中的路径添加到拼接列表中"
           @click="addCurrentCascadeToCombine"
         >
           <Plus :size="13" />
-          <span>添加此路径</span>
+          <span>加入拼接</span>
         </button>
 
         <button
           v-if="selectedLevels.length > 0"
           type="button"
-          class="btn btn-outline btn-sm reset-cascade-btn"
-          title="清空重选"
+          class="btn btn-ghost reset-btn"
+          title="重置当前下钻选择"
           @click="resetCascade"
         >
           重置
         </button>
       </div>
-
-      <!-- 多行实时提取效果预览条 (利用多余空间展示多行内容) -->
-      <div v-if="multiRowPreviews.length > 0" class="multi-sample-preview-strip">
-        <div class="strip-header">
-          <Eye :size="13" class="text-emerald" />
-          <span>多行实时提取效果预览 (前 {{ multiRowPreviews.length }} 行):</span>
-        </div>
-        <div class="strip-items">
-          <div
-            v-for="item in multiRowPreviews"
-            :key="item.rowIndex"
-            class="strip-item"
-            :class="{ 'is-null': item.isNull }"
-            :title="`第 ${item.rowIndex} 行: ${item.val}`"
-          >
-            <span class="item-row-badge">#{{ item.rowIndex }}</span>
-            <span class="item-val mono-text">{{ truncate(item.val, 80) }}</span>
-          </div>
-        </div>
-      </div>
-
-      <div v-else-if="!sampleJsonObj" class="json-empty-hint">
-        <AlertTriangle :size="14" class="text-warning" />
-        <span>源列 [{{ sourceField || '未选择' }}] 当前没有检测到有效的 JSON 数据</span>
-      </div>
     </div>
-
-    <!-- 目标路径显示与微调输入栏 -->
-    <div class="path-display-bar">
-      <template v-if="!isCombine">
-        <span class="bar-title">最终绑定路径:</span>
-        <div class="bar-input-box">
-          <input
-            :value="modelValue"
-            class="form-input form-input-sm mono-text"
-            placeholder="例如: profile.address.city"
-            @input="$emit('update:modelValue', $event.target.value)"
-          />
-        </div>
-      </template>
-
-      <template v-else>
-        <span class="bar-title">已选拼接路径 ({{ (combinePaths || []).length }} 个):</span>
-        <div class="selected-tags-box">
-          <span
-            v-for="(p, pIdx) in (combinePaths || [])"
-            :key="p"
-            class="path-pill"
-          >
-            <span class="mono-text">{{ p }}</span>
-            <button type="button" class="pill-del" @click="removeCombinePath(pIdx)">×</button>
-          </span>
-          <span v-if="!combinePaths || combinePaths.length === 0" class="text-muted text-xs">
-            暂未添加路径，请从上方级联下拉或树形弹窗添加
-          </span>
-        </div>
-      </template>
+    <div v-else-if="!sampleJsonObj" class="json-empty-inline">
+      <AlertTriangle :size="13" class="text-warning" />
+      <span>源列 [{{ sourceField || '未选择' }}] 当前未检测到合法 JSON 数据</span>
     </div>
 
     <!-- 🌲 树形折叠结构拾取弹窗 (Modern Dual-Pane IDE Inspector Modal) -->
@@ -575,6 +561,54 @@ const sampleJsonObj = computed(() => {
   return null
 })
 
+// 提取可用的叶子节点与常用属性列表（扁平化提取，供用户 1-Click 快速选择）
+const leafProperties = computed(() => {
+  if (!sampleJsonObj.value) return []
+  const list = []
+
+  function walk(obj, prefix = '', depth = 1) {
+    if (!obj || typeof obj !== 'object' || depth > 6) return
+    for (const key of Object.keys(obj)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+      const path = prefix ? `${prefix}.${key}` : key
+      const val = obj[key]
+      const isObj = typeof val === 'object' && val !== null
+      if (isObj && !Array.isArray(val)) {
+        walk(val, path, depth + 1)
+      } else {
+        list.push({
+          key,
+          path,
+          type: Array.isArray(val) ? 'array' : typeof val,
+          sample: isObj ? (Array.isArray(val) ? `[${val.length}项]` : '{...}') : String(val)
+        })
+      }
+    }
+  }
+
+  walk(sampleJsonObj.value)
+  return list
+})
+
+/**
+ * 点击常用叶子节点胶囊，极简单点选定或拼接切换
+ * @param {string} path 选中的属性访问路径
+ */
+function onLeafClick(path) {
+  if (props.isCombine) {
+    const list = [...(props.combinePaths || [])]
+    const idx = list.indexOf(path)
+    if (idx >= 0) {
+      list.splice(idx, 1)
+    } else {
+      list.push(path)
+    }
+    emit('update:combinePaths', list)
+  } else {
+    emit('update:modelValue', path)
+  }
+}
+
 // 根据当前选定的路径实时计算提取预览值
 const currentExtractedPreview = computed(() => {
   if (!sampleJsonObj.value) return 'NULL'
@@ -649,16 +683,18 @@ const cascadeLevels = computed(() => {
 
 function getObjectKeyList(obj) {
   if (!obj || typeof obj !== 'object') return []
-  return Object.keys(obj).map(k => {
-    const val = obj[k]
-    const isObject = typeof val === 'object' && val !== null
-    return {
-      key: k,
-      type: Array.isArray(val) ? 'array' : typeof val,
-      isObject,
-      sample: isObject ? (Array.isArray(val) ? `[${val.length}项]` : '{...}') : String(val)
-    }
-  })
+  return Object.keys(obj)
+    .filter(k => k !== '__proto__' && k !== 'constructor' && k !== 'prototype')
+    .map(k => {
+      const val = obj[k]
+      const isObject = typeof val === 'object' && val !== null
+      return {
+        key: k,
+        type: Array.isArray(val) ? 'array' : typeof val,
+        isObject,
+        sample: isObject ? (Array.isArray(val) ? `[${val.length}项]` : '{...}') : String(val)
+      }
+    })
 }
 
 function onCascadeSelect(levelIdx, chosenKey) {
@@ -909,50 +945,59 @@ function formatNodeTypeBadge(node) {
   return node.type
 }
 
-// 初始化时如果已有选中的路径，自动同步级联状态
+// 监听外部 modelValue 变化，双向同步级联状态
 watch(() => props.modelValue, (newVal) => {
-  if (newVal && selectedLevels.value.length === 0) {
-    selectedLevels.value = newVal.split('.')
+  if (newVal) {
+    const parts = newVal.split('.')
+    if (parts.join('.') !== selectedLevels.value.join('.')) {
+      selectedLevels.value = parts
+    }
+  } else if (!newVal && !props.isCombine) {
+    selectedLevels.value = []
   }
 }, { immediate: true })
 </script>
 
 <style scoped>
-.json-path-selector-box {
-  background: #0f1624;
-  border: 1px solid var(--border-medium);
-  border-radius: var(--radius-md);
-  padding: 14px 18px;
+/* 极简扁平 JSON 提取组件 (无多层卡片边框嵌套，高度紧凑) */
+.json-minimal-selector {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  background: transparent;
+  padding: 2px 0;
 }
 
-/* 顶部工具栏 */
-.selector-top-toolbar {
+/* 第 1 行：顶栏工具与内联路径行 */
+.json-header-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 12px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 
-.mode-toggles {
-  display: flex;
-  background: var(--bg-surface);
+.mode-capsule {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   padding: 2px;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
-.mode-btn {
-  display: flex;
+.mode-chip {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 4px;
@@ -960,219 +1005,281 @@ watch(() => props.modelValue, (newVal) => {
   transition: all var(--transition-fast);
 }
 
-.mode-btn.is-active {
+.mode-chip.is-active {
   background: var(--primary);
   color: #fff;
 }
 
-.sep-setting {
-  display: flex;
+/* 拼接连接符内联组 */
+.inline-sep-group {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 8px;
+  flex-shrink: 0;
 }
 
 .sep-label {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
 .sep-input {
-  width: 90px;
-}
-
-.tree-modal-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 级联下钻单行卡片 */
-.cascade-drilldown-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.cascade-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.cascade-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  width: 70px;
+  height: 26px;
   font-size: 12px;
-  font-weight: 700;
-  color: #a5b4fc;
+  padding: 2px 6px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  color: #f8fafc;
 }
 
-.sample-badge {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.text-emerald {
-  color: #34d399;
-}
-
-.cascade-selects-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.cascade-select-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cascade-divider {
-  color: var(--text-muted);
-  font-weight: bold;
-}
-
-.cascade-select {
-  width: auto;
-  min-width: 170px;
-  color: #fff;
-}
-
-.add-combine-btn {
+.sep-pills {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.reset-cascade-btn {
-  font-size: 11px;
-  padding: 4px 8px;
-}
-
-.json-empty-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: #fde68a;
-  padding: 4px 0;
-}
-
-/* 多行实时提取效果预览条 (利用多余空间展示多行内容) */
-.multi-sample-preview-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px dashed rgba(255, 255, 255, 0.1);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-}
-
-.strip-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
+.pill-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: var(--text-secondary);
-  font-weight: 600;
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
-.strip-items {
+.pill-btn.is-active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+/* 嵌入式最终路径容器 (合并在同一行中展示，不额外占行) */
+.inline-path-container {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 170px;
 }
 
-.strip-item {
+.path-inline-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.inline-path-input {
+  height: 26px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 120px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  color: #f8fafc;
+  padding: 2px 8px;
+}
+
+.inline-path-input:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.inline-combine-tags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.combine-tag-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
-  padding: 3px 8px;
-  font-size: 11px;
-}
-
-.strip-item.is-null .item-val {
-  color: var(--text-muted);
-}
-
-.item-row-badge {
-  font-size: 10px;
-  color: var(--text-secondary);
-  font-weight: 700;
-}
-
-.item-val {
-  color: #34d399;
-}
-
-/* 路径显示栏 */
-.path-display-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(0, 0, 0, 0.2);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  flex-wrap: wrap;
-}
-
-.bar-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-.bar-input-box {
-  flex: 1;
-  min-width: 220px;
-}
-
-.selected-tags-box {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  flex: 1;
-}
-
-.path-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--primary-light);
-  border: 1px solid var(--primary-border);
-  color: #a5b4fc;
+  gap: 5px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #c7d2fe;
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 12px;
 }
 
-.pill-del {
+.tag-close-btn {
   background: transparent;
   border: none;
-  color: #a5b4fc;
+  color: #94a3b8;
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
+  padding: 0;
 }
 
-.pill-del:hover {
-  color: #fff;
+.tag-close-btn:hover {
+  color: #f87171;
+}
+
+.inline-empty-tip {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* 实时单点提取结果徽章 (保持原紧凑尺寸与字体) */
+.inline-preview-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.preview-tag {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.preview-val {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.btn-tree-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+
+/* 第 2 行：级联逐层下钻选择行 */
+.cascade-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+
+.cascade-label-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cascade-title {
+  color: var(--text-secondary);
+}
+
+/* 移除 flex: 1，避免撑满整行把后面的按钮挤到最右端 */
+.cascade-selectors-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cascade-select-wrapper {
+  position: relative;
+}
+
+/* 下拉框背景调优：使用 slate-800 高对比度背景与清晰边框，文字为纯白 */
+.cascade-select {
+  height: 28px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 26px 2px 10px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cascade-select:hover {
+  background: #24344d;
+  border-color: #60a5fa;
+}
+
+.cascade-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
+  outline: none;
+}
+
+.cascade-select option {
+  background: #1e293b;
+  color: #f8fafc;
+  padding: 4px 8px;
+}
+
+.level-separator {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* 按钮紧随属性选择框后面：移除 margin-left: auto */
+.cascade-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.add-cascade-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  height: 28px;
+  padding: 2px 10px;
+  border-radius: 4px;
+}
+
+.reset-btn {
+  font-size: 12px;
+  height: 28px;
+  padding: 2px 8px;
+  color: #94a3b8;
+  border-radius: 4px;
+}
+
+.reset-btn:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.json-empty-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #fde68a;
+  padding: 4px 6px;
 }
 
 /* =========================================================================

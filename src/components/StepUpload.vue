@@ -1,5 +1,38 @@
 <template>
   <div class="step-upload-container">
+    <!-- 全局上传与解析加载遮罩 (Loading Overlay) -->
+    <Transition name="fade">
+      <div v-if="isLoading" class="upload-loading-overlay">
+        <div class="loading-modal-card">
+          <!-- 旋转渐变环与中心图标 -->
+          <div class="loading-spinner-wrapper">
+            <div class="spinner-pulse-ring"></div>
+            <div class="spinner-gradient-orbit"></div>
+            <div class="spinner-core-icon">
+              <FileSpreadsheet :size="32" class="text-primary-glow" />
+            </div>
+          </div>
+
+          <!-- 加载文案与动态标签 -->
+          <div class="loading-content">
+            <h3 class="loading-title">正在读取并解析 Excel / CSV 数据...</h3>
+            <div v-if="loadingFileName" class="loading-filename-badge">
+              <FileText :size="14" />
+              <span>{{ loadingFileName }}</span>
+            </div>
+            <p class="loading-desc">
+              正在提取工作表结构、无损保留日期秒数并进行字段预校验，请稍候...
+            </p>
+          </div>
+
+          <!-- 动态呼吸进度条 -->
+          <div class="loading-progress-track">
+            <div class="loading-progress-bar"></div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
     <!-- 未上传状态：拖拽上传大卡片 -->
     <div
       v-if="!fileInfo.name"
@@ -222,6 +255,7 @@
 import { ref, computed } from 'vue'
 import {
   FileSpreadsheet,
+  FileText,
   Upload,
   Sparkles,
   ShieldCheck,
@@ -265,6 +299,14 @@ const props = defineProps({
   convertNullToEmpty: {
     type: Boolean,
     default: true
+  },
+  isLoading: {
+    type: Boolean,
+    default: false
+  },
+  loadingFileName: {
+    type: String,
+    default: ''
   }
 })
 
@@ -284,6 +326,7 @@ const previewRows = computed(() => {
 })
 
 function handleFileInput(e) {
+  if (props.isLoading) return
   const file = e.target.files?.[0]
   if (file) {
     emit('file-selected', file)
@@ -292,6 +335,7 @@ function handleFileInput(e) {
 }
 
 function handleFileDrop(e) {
+  if (props.isLoading) return
   isDragging.value = false
   const file = e.dataTransfer.files?.[0]
   if (file) {
@@ -314,6 +358,7 @@ function onHeaderRowChange(val) {
   max-width: 100%;
   margin: 0;
   padding: 20px 32px;
+  position: relative; /* 确保加载遮罩能精确定位覆盖整区 */
 }
 
 /* 拖拽上传大卡片 */
@@ -756,5 +801,187 @@ function onHeaderRowChange(val) {
   color: var(--text-muted);
   font-style: italic;
   font-size: 11px;
+}
+
+/* 全局上传解析 Loading 动效遮罩 (Glassmorphic Loading Overlay) */
+.upload-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 480px;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xl, 16px);
+  padding: 24px;
+}
+
+.loading-modal-card {
+  background: var(--bg-surface-elevated, #1e293b);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.65), 0 0 30px rgba(99, 102, 241, 0.25);
+  border-radius: var(--radius-xl, 16px);
+  padding: 40px 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 480px;
+  width: 100%;
+  animation: cardPopIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes cardPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.loading-spinner-wrapper {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.spinner-pulse-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.4) 0%, rgba(99, 102, 241, 0) 70%);
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    transform: scale(0.85);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 1;
+  }
+}
+
+.spinner-gradient-orbit {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: #6366f1;
+  border-right-color: #a855f7;
+  border-bottom-color: #3b82f6;
+  animation: spinOrbit 1.2s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+}
+
+@keyframes spinOrbit {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spinner-core-icon {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.loading-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.loading-filename-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 20px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.loading-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.5;
+}
+
+.loading-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.loading-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(90deg, #6366f1, #a855f7, #3b82f6);
+  border-radius: 999px;
+  animation: progressIndeterminate 1.6s ease-in-out infinite;
+}
+
+@keyframes progressIndeterminate {
+  0% {
+    left: -45%;
+    width: 30%;
+  }
+  50% {
+    width: 65%;
+  }
+  100% {
+    left: 100%;
+    width: 30%;
+  }
+}
+
+/* 淡入淡出过渡动画 */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

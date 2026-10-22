@@ -216,6 +216,23 @@
             </select>
           </div>
 
+          <div class="format-input-group">
+            <label class="form-label">日期时间格式与展示兼容:</label>
+            <select v-model="csvConfig.mode" class="form-select form-select-sm">
+              <option value="standard">标准数据库模式 (确保 YYYY-MM-DD HH:mm:ss 完整秒数，入库推荐)</option>
+              <option value="excel_text">Excel 强显兼容模式 (带防截断前缀，双击直接在 Excel 显示秒)</option>
+            </select>
+          </div>
+
+          <div class="csv-tip-box">
+            <span class="tip-icon">💡</span>
+            <div class="tip-text">
+              <strong>关于秒数展示的说明：</strong><br />
+              导出的 CSV 底层<strong>已 100% 完整保留秒数</strong>（格式如 <code>2024-05-20 15:30:45</code>）。<br />
+              若使用 Windows Excel 直接双击打开，Excel 视觉渲染层默认以 <code>yyyy/m/d h:mm</code> 显示并隐藏秒数。在 Excel 中选中列设置格式为 <code>yyyy-mm-dd hh:mm:ss</code> 即可查看；或选择上方<strong>『Excel 强显兼容模式』</strong>即可在 Excel 中直接强制显示秒数。
+            </div>
+          </div>
+
           <button class="btn btn-success" @click="handleExportCsv">
             <Download :size="16" />
             <span>下载 .csv 文件</span>
@@ -407,11 +424,26 @@ function handleExportExcel() {
 const csvFileName = ref(`cleaned_${props.targetSchema.tableName || 'data'}.csv`)
 const jsonFileName = ref(`cleaned_${props.targetSchema.tableName || 'data'}.json`)
 
+// CSV 导出参数配置
+const csvConfig = reactive({
+  mode: 'standard', // 'standard' (标准完整秒数) | 'excel_text' (Excel 强显模式)
+  autoPadSeconds: true
+})
+
 function handleExportCsv() {
   try {
     const labelsMap = getHeaderLabelsMap()
-    exportToCsv(props.cleanedRows, csvFileName.value, excelConfig.selectedColumns, labelsMap)
-    emit('notify', { message: 'CSV 文件导出成功 (UTF-8 with BOM)！', type: 'success' })
+    exportToCsv(
+      props.cleanedRows,
+      csvFileName.value,
+      excelConfig.selectedColumns,
+      labelsMap,
+      {
+        autoPadSeconds: csvConfig.autoPadSeconds,
+        excelCompatible: csvConfig.mode === 'excel_text'
+      }
+    )
+    emit('notify', { message: 'CSV 文件导出成功 (已确保完整秒数及 UTF-8 BOM)！', type: 'success' })
   } catch (err) {
     emit('notify', { message: '导出失败: ' + err.message, type: 'error' })
   }
@@ -730,5 +762,32 @@ function handleExportJson() {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.csv-tip-box {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.csv-tip-box .tip-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.csv-tip-box code {
+  color: var(--primary);
+  font-family: monospace;
+  background: rgba(99, 102, 241, 0.1);
+  padding: 1px 4px;
+  border-radius: 4px;
 }
 </style>
