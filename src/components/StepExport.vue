@@ -217,19 +217,19 @@
           </div>
 
           <div class="format-input-group">
-            <label class="form-label">日期时间格式与展示兼容:</label>
+            <label class="config-label-strong">导出兼容模式与前导零保护:</label>
             <select v-model="csvConfig.mode" class="form-select form-select-sm">
-              <option value="standard">标准数据库模式 (确保 YYYY-MM-DD HH:mm:ss 完整秒数，入库推荐)</option>
-              <option value="excel_text">Excel 强显兼容模式 (带防截断前缀，双击直接在 Excel 显示秒)</option>
+              <option value="excel_compatible">Excel 强显兼容模式 (保护 000007 等前导零、防长数字科学计数法、完整显示秒数) - 推荐</option>
+              <option value="standard">标准 RFC 4180 纯文本模式 (无 Excel 专用修饰，适合后端程序 / 命令行直接入库)</option>
             </select>
           </div>
 
           <div class="csv-tip-box">
             <span class="tip-icon">💡</span>
             <div class="tip-text">
-              <strong>关于秒数展示的说明：</strong><br />
-              导出的 CSV 底层<strong>已 100% 完整保留秒数</strong>（格式如 <code>2024-05-20 15:30:45</code>）。<br />
-              若使用 Windows Excel 直接双击打开，Excel 视觉渲染层默认以 <code>yyyy/m/d h:mm</code> 显示并隐藏秒数。在 Excel 中选中列设置格式为 <code>yyyy-mm-dd hh:mm:ss</code> 即可查看；或选择上方<strong>『Excel 强显兼容模式』</strong>即可在 Excel 中直接强制显示秒数。
+              <strong>关于前导零 (如 000007) 与展示兼容的说明：</strong><br />
+              • <strong>前导零与长数字保护</strong>：默认开启『Excel 强显兼容模式』后，系统会自动对 <code>000007</code>、<code>0123</code> 等编码以及 18 位身份证号进行文本保护。使用 Windows Excel / WPS 直接双击打开时，前面的 0 <strong>100% 完整保留</strong>，绝不会丢失变成 <code>7</code>，且长数字不会变成科学计数法。<br />
+              • <strong>日期完整秒数</strong>：日期时间均已自动格式化为标准精确秒（如 <code>2024-05-20 15:30:45</code>），在 Excel 兼容模式下双击打开亦可直接完整呈现。
             </div>
           </div>
 
@@ -426,7 +426,7 @@ const jsonFileName = ref(`cleaned_${props.targetSchema.tableName || 'data'}.json
 
 // CSV 导出参数配置
 const csvConfig = reactive({
-  mode: 'standard', // 'standard' (标准完整秒数) | 'excel_text' (Excel 强显模式)
+  mode: 'excel_compatible', // 'excel_compatible' (Excel 强显兼容与前导零保护，默认推荐) | 'standard' (标准纯文本)
   autoPadSeconds: true
 })
 
@@ -440,10 +440,10 @@ function handleExportCsv() {
       labelsMap,
       {
         autoPadSeconds: csvConfig.autoPadSeconds,
-        excelCompatible: csvConfig.mode === 'excel_text'
+        excelCompatible: csvConfig.mode === 'excel_compatible'
       }
     )
-    emit('notify', { message: 'CSV 文件导出成功 (已确保完整秒数及 UTF-8 BOM)！', type: 'success' })
+    emit('notify', { message: 'CSV 文件导出成功 (已启用前导零保护、完整秒数及 UTF-8 BOM)！', type: 'success' })
   } catch (err) {
     emit('notify', { message: '导出失败: ' + err.message, type: 'error' })
   }
@@ -764,30 +764,41 @@ function handleExportJson() {
   gap: 6px;
 }
 
+.config-label-strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .csv-tip-box {
   width: 100%;
   display: flex;
   gap: 10px;
-  background: var(--bg-input);
+  background: var(--bg-surface-elevated, var(--bg-input));
   border: 1px solid var(--border-medium);
+  border-left: 3px solid #10b981;
   border-radius: var(--radius-md);
-  padding: 10px 14px;
+  padding: 12px 14px;
   font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.5;
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
 .csv-tip-box .tip-icon {
-  font-size: 14px;
+  font-size: 16px;
   flex-shrink: 0;
   margin-top: 1px;
 }
 
 .csv-tip-box code {
-  color: var(--primary);
+  color: #10b981;
   font-family: monospace;
-  background: rgba(99, 102, 241, 0.1);
-  padding: 1px 4px;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 1px 5px;
   border-radius: 4px;
+  font-weight: 600;
 }
 </style>

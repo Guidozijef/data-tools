@@ -263,17 +263,17 @@ export function exportToExcel(data, fileName = 'cleaned_data.xlsx', sheetName = 
 
 /**
  * 导出为带 UTF-8 BOM 的 CSV（完美解决 Windows Excel 打开中文乱码问题）
- * 支持自动补齐日期秒数、Excel 文本强显模式（防 Excel 吞秒和科学计数法）以及公式注入防御
+ * 支持前导零保护 (如 000007 永不丢零)、长数字防科学计数法、自动补齐秒数以及 CWE-1236 公式注入防御
  * @param {Array<object>} data 清洗后的数据对象数组
  * @param {string} fileName 导出文件名
  * @param {Array<string>} [columnKeys] 指定导出的字段顺序及 key
  * @param {Record<string, string>} [headerLabels] key 到表头名称的映射
  * @param {object} [options] 导出高级配置项
  * @param {boolean} [options.autoPadSeconds=true] 是否自动将缺少秒数的日期补齐秒 (YYYY-MM-DD HH:mm:ss)
- * @param {boolean} [options.excelCompatible=false] 是否开启 Excel 强显模式 (添加 \t 前缀防 Excel 吞秒和转科学计数法)
+ * @param {boolean} [options.excelCompatible=true] 是否开启 Excel 强显兼容模式 (保护前导零、防长数字科学计数法、完整显示秒数)
  */
 export function exportToCsv(data, fileName = 'cleaned_data.csv', columnKeys = null, headerLabels = {}, options = {}) {
-  const { autoPadSeconds = true, excelCompatible = false } = options
+  const { autoPadSeconds = true, excelCompatible = true } = options
   if (!data || data.length === 0) {
     throw new Error('没有可导出的数据')
   }
@@ -295,18 +295,29 @@ export function exportToCsv(data, fileName = 'cleaned_data.csv', columnKeys = nu
         val = formatFullDateTime(val)
       } else if (typeof val === 'object' && val !== null) {
         val = JSON.stringify(val)
-      } else if (typeof val === 'string') {
-        const trimmed = val.trim()
-        // 2. 若开启自动补齐秒，且当前为缺少秒数的日期时间（如 2023-05-20 15:30 或 2023/05/20 15:30）
-        if (autoPadSeconds && /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}:\d{1,2}$/.test(trimmed)) {
-          val = `${trimmed}:00`
-        }
       }
 
-      let valStr = String(val)
-      // 3. 若开启 Excel 强显模式，为包含秒数的日期串添加制表符前缀，防止 Windows Excel 双击打开时自动隐藏秒
-      if (excelCompatible && /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}:\d{1,2}:\d{1,2}$/.test(valStr.trim())) {
-        valStr = `\t${valStr.trim()}`
+      let valStr = String(val).trim()
+
+      // 1. 若开启自动补齐秒，且当前为缺少秒数的日期时间（如 2023-05-20 15:30 或 2023/05/20 15:30）
+      if (autoPadSeconds && /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}:\d{1,2}$/.test(valStr)) {
+        valStr = `${valStr}:00`
+      }
+
+      // 2. 若开启 Excel 兼容模式，针对特定文本格式采用 Excel 字符串常量公式 (="...") 保护，
+      //    杜绝 Windows Excel / WPS 在双击打开时自动执行类型嗅探导致的丢零与精度破坏：
+      //    (a) 前导零数字（如 000007, 0123）：必须为以 0 开头的多位纯数字（排除纯单个字符 '0' 与 '0.5' 等浮点数）
+      //    (b) 超长纯数字（12 位及以上，如 18 位身份证号、19 位银行卡号、流水号）：防止 Excel 自动转科学计数法并丢失后 3 位精度
+      //    (c) 包含完整秒数的日期时间：防止 Excel 默认简写规则隐藏秒数
+      if (excelCompatible) {
+        const isLeadingZeroNumber = /^0\d+$/.test(valStr) && valStr !== '0'
+        const isLongNumeric = /^\d{12,}$/.test(valStr)
+        const isDateTimeWithSeconds = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}:\d{1,2}:\d{1,2}$/.test(valStr)
+
+        if (isLeadingZeroNumber || isLongNumeric || isDateTimeWithSeconds) {
+          // 经过严格正则白名单校验，确定不包含任何恶意注入字符，安全输出为 Excel 文本公式
+          return `="${valStr}"`
+        }
       }
 
       return escapeCsvValue(valStr)
@@ -314,7 +325,7 @@ export function exportToCsv(data, fileName = 'cleaned_data.csv', columnKeys = nu
     csvRows.push(rowValues.join(','))
   })
 
-  // 添加 UTF-8 BOM: \uFEFF
+  // 添加 UTF-8 BOM: \uFEFF 确保 Windows Excel 直接打开中文不乱码
   const csvContent = '\uFEFF' + csvRows.join('\r\n')
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
   downloadBlob(blob, fileName.endsWith('.csv') ? fileName : `${fileName}.csv`)
@@ -352,15 +363,16 @@ function escapeCsvValue(val) {
   if (isNullOrEmptyValue(val, true)) return '""'
   let str = String(val)
 
-  // CSV 公式注入防护：如果首字符为 =、+、-、@，且不是负数或标准连接符，前置单引号转义
+  // CSV 公式注入防护 (CWE-1236)：如果首字符为 =、+、-、@，且不是负数或标准连接符，前置单引号转义
   if (/^[=\+\-@]/.test(str) && !/^-?\d+(\.\d+)?$/.test(str)) {
     str = `'${str}`
   }
 
+  // 严格遵循 RFC 4180 标准：仅当字段包含逗号、双引号、换行符时才包裹双引号并对双引号进行转义
   if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
     return `"${str.replace(/"/g, '""')}"`
   }
-  return `"${str}"`
+  return str
 }
 
 function downloadBlob(blob, fileName) {
